@@ -1,0 +1,24 @@
+[spell]
+tau_ratio = 0.5
+
+[tokenizer]
+delimiters = '[ =,:()\[\]\t\n\r]+'
+extra_delimiters = []
+use_jieba = true
+mask_patterns = [
+  '\b(?:\d{4}/\d{1,2}/\d{1,2})\s+(?:[01]?\d|2[0-3]):[0-5]\d\b',
+  '\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b',
+]
+
+[header]
+parse_structure = '<context>'
+strict_mode = false
+
+[header.field_patterns]
+
+[output]
+dir = 'output'
+parsed_file = 'parsed_results.jsonl'
+template_file = 'templates.txt'
+result_format = 'jsonl'
+show_tokens = false

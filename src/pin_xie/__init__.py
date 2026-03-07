@@ -1,4 +1,17 @@
 from .cluster import LCSObject
+from .config import (
+    DemoConfig,
+    HeaderConfig,
+    OutputConfig,
+    SpellConfig,
+    TokenizerConfig,
+    load_demo_config,
+)
+from .header import (
+    CONTEXT_ONLY_STRUCTURE,
+    HeaderParseResult,
+    RegexHeaderParser,
+)
 from .lcs import lcs
 from .parser import ParseResult, SpellParser, select_best_cluster
 from .similarity import jaccard_filter, jaccard_similarity
@@ -11,12 +24,21 @@ __all__ = [
     "LogTokenizer",
     "ParseResult",
     "PrefixTree",
+    "RegexHeaderParser",
     "SpellParser",
     "TrieNode",
+    "CONTEXT_ONLY_STRUCTURE",
+    "DemoConfig",
+    "HeaderConfig",
+    "HeaderParseResult",
+    "OutputConfig",
+    "SpellConfig",
+    "TokenizerConfig",
     "extract_parameters",
     "jaccard_filter",
     "jaccard_similarity",
     "lcs",
+    "load_demo_config",
     "merge_template",
     "select_best_cluster",
     "tokenize",

@@ -4,60 +4,22 @@ import argparse
 import json
 from pathlib import Path
 
+from .config import load_demo_config
+from .header import RegexHeaderParser
 from .parser import SpellParser
-from .tokenizer import DEFAULT_DELIMITERS, LogTokenizer
+from .tokenizer import LogTokenizer
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Minimal Spell demo: parse a log file and write outputs to files.",
+        description="Minimal Spell demo: parse a log file via TOML config.",
     )
     parser.add_argument("log_file", type=Path, help="Path to input log file")
     parser.add_argument(
-        "--tau-ratio",
-        type=float,
-        default=0.5,
-        help="LCS threshold ratio (default: 0.5)",
-    )
-    parser.add_argument(
-        "--delimiters",
-        type=str,
-        default=DEFAULT_DELIMITERS,
-        help="Regex delimiters for first-pass split",
-    )
-    parser.add_argument(
-        "--no-jieba",
-        action="store_true",
-        help="Disable jieba and fallback to character-level Han splitting",
-    )
-    parser.add_argument(
-        "--output-dir",
+        "--config",
         type=Path,
-        default=Path("output"),
-        help="Directory for parsed output and templates (default: output)",
-    )
-    parser.add_argument(
-        "--parsed-file",
-        type=str,
-        default="parsed_results.jsonl",
-        help="Parsed per-line output file name",
-    )
-    parser.add_argument(
-        "--template-file",
-        type=str,
-        default="templates.txt",
-        help="Final templates output file name",
-    )
-    parser.add_argument(
-        "--result-format",
-        choices=("jsonl", "text"),
-        default="jsonl",
-        help="Per-line parsed output format (default: jsonl)",
-    )
-    parser.add_argument(
-        "--show-tokens",
-        action="store_true",
-        help="Include tokens in per-line output",
+        default=Path("config/Config.toml"),
+        help="Path to TOML config file",
     )
     return parser
 
@@ -66,13 +28,26 @@ def run_demo(args: argparse.Namespace) -> int:
     if not args.log_file.exists() or not args.log_file.is_file():
         raise FileNotFoundError(f"Log file not found: {args.log_file}")
 
-    output_dir: Path = args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    parsed_output_path = output_dir / args.parsed_file
-    template_output_path = output_dir / args.template_file
+    config = load_demo_config(args.config)
 
-    tokenizer = LogTokenizer(delimiters=args.delimiters, use_jieba=not args.no_jieba)
-    parser = SpellParser(tau_ratio=args.tau_ratio, tokenizer=tokenizer)
+    output_dir = config.output.dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    parsed_output_path = output_dir / config.output.parsed_file
+    template_output_path = output_dir / config.output.template_file
+
+    tokenizer = LogTokenizer(
+        delimiters=config.tokenizer.delimiters,
+        extra_delimiters=config.tokenizer.extra_delimiters,
+        mask_patterns=config.tokenizer.mask_patterns,
+        use_jieba=config.tokenizer.use_jieba,
+    )
+    parser = SpellParser(tau_ratio=config.spell.tau_ratio, tokenizer=tokenizer)
+    header_parser = RegexHeaderParser(
+        parse_structure=config.header.parse_structure,
+        field_patterns=config.header.field_patterns,
+        strict_mode=config.header.strict_mode,
+    )
+
     parsed_count = 0
 
     with (
@@ -84,33 +59,58 @@ def run_demo(args: argparse.Namespace) -> int:
             if not log:
                 continue
 
-            result = parser.process(log, line_id=index)
+            header = header_parser.parse(log)
+            context = header.context
+
+            result = parser.process(context, line_id=index)
             template = " ".join(result.template_tokens)
 
-            if args.result_format == "jsonl":
+            if config.output.result_format == "jsonl":
                 payload = {
                     "line_id": index,
+                    "header_matched": header.matched,
                     "cluster_id": result.cluster_id,
+                    "context": context,
                     "template": template,
                     "template_tokens": result.template_tokens,
                     "parameters": result.parameters,
                     "log": log,
                 }
-                if args.show_tokens:
+                payload["header_time"] = header.fields.get("time")
+                payload["header_entity"] = header.fields.get("entity")
+                for field_name, field_value in header.fields.items():
+                    if field_name == "context":
+                        continue
+                    payload[f"header_{field_name}"] = field_value
+
+                if config.output.show_tokens:
                     payload["tokens"] = result.tokens
 
                 parsed_fp.write(json.dumps(payload, ensure_ascii=False))
                 parsed_fp.write("\n")
             else:
-                if args.show_tokens:
+                if config.output.show_tokens:
+                    non_context_fields = {
+                        key: value
+                        for key, value in header.fields.items()
+                        if key != "context"
+                    }
                     parsed_fp.write(
-                        f"[{index}] cid={result.cluster_id} tokens={result.tokens} "
-                        f"template={template} params={result.parameters} log={log}\n"
+                        f"[{index}] header_fields={non_context_fields} "
+                        f"cid={result.cluster_id} tokens={result.tokens} "
+                        f"template={template} params={result.parameters} "
+                        f"context={context} log={log}\n"
                     )
                 else:
+                    non_context_fields = {
+                        key: value
+                        for key, value in header.fields.items()
+                        if key != "context"
+                    }
                     parsed_fp.write(
-                        f"[{index}] cid={result.cluster_id} "
-                        f"template={template} params={result.parameters} log={log}\n"
+                        f"[{index}] header_fields={non_context_fields} "
+                        f"cid={result.cluster_id} template={template} "
+                        f"params={result.parameters} context={context} log={log}\n"
                     )
 
             parsed_count += 1
@@ -118,6 +118,22 @@ def run_demo(args: argparse.Namespace) -> int:
     with template_output_path.open("w", encoding="utf-8") as tpl_fp:
         tpl_fp.write("=== Final Templates ===\n")
         tpl_fp.write(f"total_clusters={len(parser.all_clusters())}\n\n")
+        tpl_fp.write("=== Header Parse Config ===\n")
+        tpl_fp.write(
+            f"parse_structure={config.header.parse_structure} "
+            f"strict_mode={config.header.strict_mode}\n"
+        )
+        for field_name, field_pattern in config.header.field_patterns.items():
+            tpl_fp.write(f"field_pattern[{field_name}]={field_pattern}\n")
+        tpl_fp.write("\n")
+        tpl_fp.write("=== Spell Config ===\n")
+        tpl_fp.write(f"tau_ratio={config.spell.tau_ratio}\n\n")
+        tpl_fp.write("=== Tokenizer Config ===\n")
+        tpl_fp.write(
+            f"delimiters={config.tokenizer.delimiters} "
+            f"use_jieba={config.tokenizer.use_jieba} "
+            f"mask_patterns_count={len(config.tokenizer.mask_patterns)}\n\n"
+        )
 
         for cluster in parser.all_clusters():
             template = " ".join(cluster.template_tokens)

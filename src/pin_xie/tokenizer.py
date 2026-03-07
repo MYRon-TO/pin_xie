@@ -7,11 +7,6 @@ import regex
 
 
 DEFAULT_DELIMITERS = r"[ =,:()\[\]\t\n\r]+"
-# Keep this order stable: earlier patterns have higher priority.
-DEFAULT_MASK_PATTERNS = (
-    r"\b(?:\d{4}/\d{1,2}/\d{1,2})\s+(?:[01]?\d|2[0-3]):[0-5]\d\b",
-    r"\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b",
-)
 
 
 class LogTokenizer:
@@ -35,9 +30,7 @@ class LogTokenizer:
         )
         self.contains_han_re = regex.compile(r"\p{Han}")
 
-        ordered_masks = (
-            tuple(mask_patterns) if mask_patterns is not None else DEFAULT_MASK_PATTERNS
-        )
+        ordered_masks = tuple(mask_patterns) if mask_patterns is not None else ()
         self.mask_patterns = ordered_masks
         self.mask_re = (
             regex.compile("|".join(f"(?:{pattern})" for pattern in ordered_masks))
