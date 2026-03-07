@@ -7,6 +7,11 @@ import regex
 
 
 DEFAULT_DELIMITERS = r"[ =,:()\[\]\t\n\r]+"
+# Keep this order stable: earlier patterns have higher priority.
+DEFAULT_MASK_PATTERNS = (
+    r"\b(?:\d{4}/\d{1,2}/\d{1,2})\s+(?:[01]?\d|2[0-3]):[0-5]\d\b",
+    r"\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b",
+)
 
 
 class LogTokenizer:
@@ -14,6 +19,7 @@ class LogTokenizer:
         self,
         delimiters: str = DEFAULT_DELIMITERS,
         extra_delimiters: Iterable[str] | None = None,
+        mask_patterns: Iterable[str] | None = None,
         use_jieba: bool = True,
     ) -> None:
         delimiter_patterns = [delimiters]
@@ -28,13 +34,46 @@ class LogTokenizer:
             r"\p{Han}+|[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*|[^\s]"
         )
         self.contains_han_re = regex.compile(r"\p{Han}")
+
+        ordered_masks = (
+            tuple(mask_patterns) if mask_patterns is not None else DEFAULT_MASK_PATTERNS
+        )
+        self.mask_patterns = ordered_masks
+        self.mask_re = (
+            regex.compile("|".join(f"(?:{pattern})" for pattern in ordered_masks))
+            if ordered_masks
+            else None
+        )
+
         self.use_jieba = use_jieba
 
     def tokenize(self, log: str) -> list[str]:
         if not log:
             return []
 
-        rough_chunks = [chunk for chunk in self.delimiter_re.split(log) if chunk]
+        if self.mask_re is None:
+            return self._tokenize_plain_text(log)
+
+        tokens: list[str] = []
+        text_pos = 0
+        for match in self.mask_re.finditer(log):
+            start, end = match.span()
+            if text_pos < start:
+                tokens.extend(self._tokenize_plain_text(log[text_pos:start]))
+
+            tokens.append(match.group(0))
+            text_pos = end
+
+        if text_pos < len(log):
+            tokens.extend(self._tokenize_plain_text(log[text_pos:]))
+
+        return [token for token in tokens if token and not token.isspace()]
+
+    def _tokenize_plain_text(self, text: str) -> list[str]:
+        if not text:
+            return []
+
+        rough_chunks = [chunk for chunk in self.delimiter_re.split(text) if chunk]
         tokens: list[str] = []
         for chunk in rough_chunks:
             tokens.extend(self._segment_chunk(chunk))
