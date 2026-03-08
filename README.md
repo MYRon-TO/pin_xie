@@ -104,6 +104,34 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse
 - 模板缓存（JSON）：`cache/templates.json`（目录可由 `--template-dir` 指定）
 - 模式差异：`learn` 仅写缓存；`parse` 仅写解析结果；`learn_parse` 同时写解析结果、模板摘要和缓存
 
+## 作为库使用
+
+你可以直接使用 `PinXieEngine` 以 API 方式集成，不依赖 CLI。
+
+```python
+from pin_xie import PinXieEngine, RunMode
+
+engine = PinXieEngine.from_config_path("config/Config.dynamic_example.toml")
+
+# 1) 学习模板（只更新模板并写缓存）
+engine.run_file("/path/to/train.log", mode=RunMode.LEARN, template_dir="cache")
+
+# 2) 解析日志（只解析，不更新模板）
+report = engine.run_file("/path/to/infer.log", mode=RunMode.PARSE, template_dir="cache")
+print(report.processed_lines)
+
+# 3) 流式逐行处理
+record = engine.process_line("2025/11/26 0:51,user1,文件 file9 下载成功", line_id=1)
+print(record.cluster_id, record.template)
+```
+
+常用 API：
+
+- `PinXieEngine.from_config_path(config_path)`：从 TOML 配置初始化
+- `run_file(...)`：按 `learn/parse/learn_parse` 模式处理文件
+- `process_line(...)` / `process_lines(...)`：逐行或流式处理
+- `save_template_cache(...)` / `load_template_cache(...)`：模板缓存读写
+
 ## 配置说明（TOML）
 
 ### `[spell]`

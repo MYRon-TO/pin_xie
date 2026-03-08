@@ -1,3 +1,10 @@
+from .api import (
+    TEMPLATE_CACHE_FILE,
+    ParsedRecord,
+    PinXieEngine,
+    RunMode,
+    RunReport,
+)
 from .cluster import LCSObject
 from .config import (
     DemoConfig,
@@ -20,6 +27,11 @@ from .tokenizer import LogTokenizer, tokenize
 from .trie import PrefixTree, TrieNode, trie_match
 
 __all__ = [
+    "ParsedRecord",
+    "PinXieEngine",
+    "RunMode",
+    "RunReport",
+    "TEMPLATE_CACHE_FILE",
     "LCSObject",
     "LogTokenizer",
     "ParseResult",
