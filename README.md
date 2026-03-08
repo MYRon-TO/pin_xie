@@ -78,10 +78,31 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --config config/Config.d
 PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --config config/Config.toml
 ```
 
+支持三种模式：
+
+- `learn_parse`（默认）：边学习边解析（保留原有行为），同时写出解析结果和模板摘要。
+- `learn`：只学习模板，不写解析输出；模板会保存到 `--template-dir`（默认 `./cache/`）。
+- `parse`：只解析，不更新模板；会从 `--template-dir` 读取模板缓存。
+
+示例：
+
+```bash
+# 1) 仅学习模板（不输出 parsed_results/templates.txt）
+PYTHONPATH=src python -m pin_xie.demo /path/to/train.log --mode learn --template-dir ./cache
+
+# 2) 仅解析（使用已有模板，不更新）
+PYTHONPATH=src python -m pin_xie.demo /path/to/infer.log --mode parse --template-dir ./cache
+
+# 3) 维持原有模式（学习 + 解析）
+PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse
+```
+
 3) 查看输出
 
 - 逐行解析结果：`output/parsed_results.jsonl`
 - 模板聚类结果：`output/templates.txt`
+- 模板缓存（JSON）：`cache/templates.json`（目录可由 `--template-dir` 指定）
+- 模式差异：`learn` 仅写缓存；`parse` 仅写解析结果；`learn_parse` 同时写解析结果、模板摘要和缓存
 
 ## 配置说明（TOML）
 
