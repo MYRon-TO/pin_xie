@@ -20,5 +20,4 @@ strict_mode = false
 dir = 'output'
 parsed_file = 'parsed_results.jsonl'
 template_file = 'templates.txt'
-result_format = 'jsonl'
 show_tokens = false

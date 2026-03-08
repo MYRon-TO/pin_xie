@@ -29,8 +29,7 @@
 ```text
 pin_xie/
 ├── config/
-│   ├── Config.toml
-│   └── Config.dynamic_example.toml
+│   └── Config.toml
 ├── src/pin_xie/
 │   ├── parser.py       # 主流程（Trie -> Jaccard -> LCS）
 │   ├── tokenizer.py    # 中文/混合文本切词 + mask

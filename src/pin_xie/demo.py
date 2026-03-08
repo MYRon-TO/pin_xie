@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 
 from .config import load_demo_config
-from .header import RegexHeaderParser
-from .parser import SpellParser
+from .header import HeaderParseResult, RegexHeaderParser
+from .parser import ParseResult, SpellParser
 from .tokenizer import LogTokenizer
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Minimal Spell demo: parse a log file via TOML config.",
+        description="Spell demo: parse a log file and emit JSONL.",
     )
     parser.add_argument("log_file", type=Path, help="Path to input log file")
     parser.add_argument(
@@ -22,6 +22,55 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Path to TOML config file",
     )
     return parser
+
+
+def _build_jsonl_payload(
+    *,
+    line_id: int,
+    log: str,
+    header: HeaderParseResult,
+    result: ParseResult,
+    show_tokens: bool,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "line_id": line_id,
+        "header_matched": header.matched,
+        "cluster_id": result.cluster_id,
+        "context": header.context,
+        "template": " ".join(result.template_tokens),
+        "template_tokens": result.template_tokens,
+        "parameters": result.parameters,
+        "log": log,
+    }
+
+    for field_name, field_value in header.fields.items():
+        if field_name == "context":
+            continue
+        payload[f"header_{field_name}"] = field_value
+
+    if show_tokens:
+        payload["tokens"] = result.tokens
+
+    return payload
+
+
+def _parse_line_to_payload(
+    *,
+    line_id: int,
+    log: str,
+    header_parser: RegexHeaderParser,
+    parser: SpellParser,
+    show_tokens: bool,
+) -> dict[str, object]:
+    header = header_parser.parse(log)
+    result = parser.process(header.context, line_id=line_id)
+    return _build_jsonl_payload(
+        line_id=line_id,
+        log=log,
+        header=header,
+        result=result,
+        show_tokens=show_tokens,
+    )
 
 
 def run_demo(args: argparse.Namespace) -> int:
@@ -59,59 +108,15 @@ def run_demo(args: argparse.Namespace) -> int:
             if not log:
                 continue
 
-            header = header_parser.parse(log)
-            context = header.context
-
-            result = parser.process(context, line_id=index)
-            template = " ".join(result.template_tokens)
-
-            if config.output.result_format == "jsonl":
-                payload = {
-                    "line_id": index,
-                    "header_matched": header.matched,
-                    "cluster_id": result.cluster_id,
-                    "context": context,
-                    "template": template,
-                    "template_tokens": result.template_tokens,
-                    "parameters": result.parameters,
-                    "log": log,
-                }
-                payload["header_time"] = header.fields.get("time")
-                payload["header_entity"] = header.fields.get("entity")
-                for field_name, field_value in header.fields.items():
-                    if field_name == "context":
-                        continue
-                    payload[f"header_{field_name}"] = field_value
-
-                if config.output.show_tokens:
-                    payload["tokens"] = result.tokens
-
-                parsed_fp.write(json.dumps(payload, ensure_ascii=False))
-                parsed_fp.write("\n")
-            else:
-                if config.output.show_tokens:
-                    non_context_fields = {
-                        key: value
-                        for key, value in header.fields.items()
-                        if key != "context"
-                    }
-                    parsed_fp.write(
-                        f"[{index}] header_fields={non_context_fields} "
-                        f"cid={result.cluster_id} tokens={result.tokens} "
-                        f"template={template} params={result.parameters} "
-                        f"context={context} log={log}\n"
-                    )
-                else:
-                    non_context_fields = {
-                        key: value
-                        for key, value in header.fields.items()
-                        if key != "context"
-                    }
-                    parsed_fp.write(
-                        f"[{index}] header_fields={non_context_fields} "
-                        f"cid={result.cluster_id} template={template} "
-                        f"params={result.parameters} context={context} log={log}\n"
-                    )
+            payload = _parse_line_to_payload(
+                line_id=index,
+                log=log,
+                header_parser=header_parser,
+                parser=parser,
+                show_tokens=config.output.show_tokens,
+            )
+            parsed_fp.write(json.dumps(payload, ensure_ascii=False))
+            parsed_fp.write("\n")
 
             parsed_count += 1
 

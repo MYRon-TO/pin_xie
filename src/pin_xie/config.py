@@ -33,7 +33,6 @@ class OutputConfig:
     dir: Path = Path("output")
     parsed_file: str = "parsed_results.jsonl"
     template_file: str = "templates.txt"
-    result_format: str = "jsonl"
     show_tokens: bool = False
 
 
@@ -96,12 +95,8 @@ def load_demo_config(config_path: Path) -> DemoConfig:
         dir=Path(str(output_data.get("dir", "output"))),
         parsed_file=str(output_data.get("parsed_file", "parsed_results.jsonl")),
         template_file=str(output_data.get("template_file", "templates.txt")),
-        result_format=str(output_data.get("result_format", "jsonl")),
         show_tokens=bool(output_data.get("show_tokens", False)),
     )
-
-    if output.result_format not in {"jsonl", "text"}:
-        raise ValueError("output.result_format must be one of: jsonl, text")
 
     return DemoConfig(
         spell=spell,
