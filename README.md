@@ -128,9 +128,22 @@ print(record.cluster_id, record.template)
 常用 API：
 
 - `PinXieEngine.from_config_path(config_path)`：从 TOML 配置初始化
+- `PinXieEngine.read_toml_config(config_path)`：只读取 TOML 文件并返回原始字典
+- `PinXieEngine.parse_config_data(data)`：将 TOML 字典解析为 `DemoConfig`
+- `PinXieEngine.from_config_data(data)`：从 TOML 字典初始化引擎
 - `run_file(...)`：按 `learn/parse/learn_parse` 模式处理文件
 - `process_line(...)` / `process_lines(...)`：逐行或流式处理
 - `save_template_cache(...)` / `load_template_cache(...)`：模板缓存读写
+- `set_template_variable_name(cluster_id, var_index, var_name)`：为模板变量设置/清空名称（`var_name=None` 或空串表示清空）
+- `set_template_variable_names(cluster_id, variable_names)`：批量更新变量名称，支持部分命名
+- `get_template_variable_names(cluster_id)`：获取模板当前已命名变量
+
+额外配置校验 API：
+
+- `PinXieEngine.validate_config_path(config_path, samples)`：给定样本日志列表，校验 header 结构提取是否对全部样本成功
+- `PinXieEngine.validate_header_extraction(config, samples)`：对已解析配置执行同样校验
+
+说明：仅当 `parse_structure` 中包含 `<context>` 之外的 header 字段时才会执行该校验；如果配置为纯 `<context>`，会直接返回通过。
 
 ## 配置说明（TOML）
 
@@ -171,7 +184,7 @@ entity = '[\p{L}\p{N}_.@-]+'
 2. Trie 快速匹配已有模板簇
 3. 若未命中，做 Jaccard 候选过滤
 4. 对候选做 LCS，按阈值与 tie-break 选择最佳簇
-5. 命中则更新模板（差异位合并为 `*`），否则新建簇
+5. 命中则更新模板（差异位合并为变量槽位），否则新建簇
 6. 基于模板提取参数列表
 
 这与 Spell 论文和 `logpai/logparser` 的核心思路保持一致，但针对中文日志进行了切词和头部解析上的增强。
@@ -183,8 +196,9 @@ entity = '[\p{L}\p{N}_.@-]+'
 - `line_id`：日志行号
 - `cluster_id`：模板簇 ID
 - `context`：参与 Spell 聚类的正文
-- `template` / `template_tokens`：当前模板
-- `parameters`：由 `*` 位置提取的参数
+- `template` / `template_tokens`：当前模板（变量位渲染为 `<VAR:var_0>` 或 `<VAR:变量名>`）
+- `parameters`：按变量位顺序提取的参数列表
+- `named_parameters`：变量名（未命名回退为 `var_N`）到参数值的映射
 - `header_*`：从 header 解析出的结构化字段（若配置）
 
 ## 致谢与参考文献

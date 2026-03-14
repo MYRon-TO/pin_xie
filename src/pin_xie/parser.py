@@ -6,7 +6,7 @@ from typing import Any, Mapping
 from .cluster import LCSObject, create_cluster
 from .lcs import lcs
 from .similarity import jaccard_filter
-from .template import extract_parameters, merge_template
+from .template import TemplateToken, extract_parameters, merge_template
 from .tokenizer import LogTokenizer
 from .trie import PrefixTree, trie_match
 
@@ -14,7 +14,7 @@ from .trie import PrefixTree, trie_match
 @dataclass
 class ParseResult:
     cluster_id: int
-    template_tokens: list[str]
+    template_tokens: list[TemplateToken]
     parameters: list[str]
     tokens: list[str]
 
@@ -48,6 +48,7 @@ class SpellParser:
     ) -> None:
         self.tau_ratio = tau_ratio
         self.tokenizer = tokenizer or LogTokenizer()
+        self.header_config_state: dict[str, Any] | None = None
 
         self.clusters_by_id: dict[int, LCSObject] = {}
         self.cluster_order: list[int] = []
@@ -158,8 +159,15 @@ class SpellParser:
             return 0
         return max(1, int(token_count * self.tau_ratio))
 
-    def to_template_state(self) -> dict[str, Any]:
-        return {
+    def to_template_state(
+        self,
+        *,
+        header_config: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if header_config is not None:
+            self.header_config_state = self._normalize_header_config(header_config)
+
+        state: dict[str, Any] = {
             "version": 1,
             "tau_ratio": self.tau_ratio,
             "next_cluster_id": self.next_cluster_id,
@@ -167,10 +175,16 @@ class SpellParser:
                 {
                     "cluster_id": cluster.cluster_id,
                     "template_tokens": list(cluster.template_tokens),
+                    "variable_names": dict(cluster.variable_names),
                 }
                 for cluster in self.all_clusters()
             ],
         }
+
+        if self.header_config_state is not None:
+            state["header"] = self._normalize_header_config(self.header_config_state)
+
+        return state
 
     @classmethod
     def from_template_state(
@@ -191,6 +205,12 @@ class SpellParser:
         if not isinstance(raw_clusters, list):
             raise ValueError("Invalid template cache: clusters must be a list")
 
+        raw_header_config = state.get("header")
+        if raw_header_config is not None:
+            if not isinstance(raw_header_config, Mapping):
+                raise ValueError("Invalid template cache: header must be an object")
+            parser.header_config_state = cls._normalize_header_config(raw_header_config)
+
         for item in raw_clusters:
             if not isinstance(item, Mapping):
                 raise ValueError(
@@ -199,21 +219,55 @@ class SpellParser:
 
             raw_cluster_id = item.get("cluster_id")
             raw_template_tokens = item.get("template_tokens", [])
+            raw_variable_names = item.get("variable_names", {})
 
             if not isinstance(raw_cluster_id, int):
                 raise ValueError("Invalid template cache: cluster_id must be an int")
             if not isinstance(raw_template_tokens, list) or not all(
-                isinstance(token, str) for token in raw_template_tokens
+                token is None or isinstance(token, str) for token in raw_template_tokens
             ):
                 raise ValueError(
-                    "Invalid template cache: template_tokens must be list[str]"
+                    "Invalid template cache: template_tokens must be list[str | null]"
                 )
+            if not isinstance(raw_variable_names, Mapping):
+                raise ValueError(
+                    "Invalid template cache: variable_names must be an object"
+                )
+
+            variable_names: dict[int, str] = {}
+            used_names: set[str] = set()
+            for raw_key, raw_name in raw_variable_names.items():
+                try:
+                    var_index = int(raw_key)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "Invalid template cache: variable name index must be int"
+                    ) from exc
+
+                if var_index < 0:
+                    raise ValueError(
+                        "Invalid template cache: variable name index must be >= 0"
+                    )
+                if not isinstance(raw_name, str):
+                    raise ValueError(
+                        "Invalid template cache: variable name must be str"
+                    )
+                name = raw_name.strip()
+                if not name:
+                    continue
+                if name in used_names:
+                    raise ValueError(
+                        "Invalid template cache: duplicate variable names are not allowed"
+                    )
+                used_names.add(name)
+                variable_names[var_index] = name
 
             cluster = LCSObject(
                 cluster_id=raw_cluster_id,
                 template_tokens=list(raw_template_tokens),
                 line_ids=[],
                 size=0,
+                variable_names=variable_names,
             )
             parser.clusters_by_id[cluster.cluster_id] = cluster
             parser.cluster_order.append(cluster.cluster_id)
@@ -226,3 +280,27 @@ class SpellParser:
 
         parser._rebuild_trie()
         return parser
+
+    @staticmethod
+    def _normalize_header_config(
+        header_config: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        parse_structure = str(header_config.get("parse_structure", "")).strip()
+        if not parse_structure:
+            raise ValueError("Invalid header config: parse_structure must be non-empty")
+
+        raw_field_patterns = header_config.get("field_patterns", {})
+        if not isinstance(raw_field_patterns, Mapping):
+            raise ValueError("Invalid header config: field_patterns must be an object")
+
+        field_patterns = {
+            str(key): str(value)
+            for key, value in raw_field_patterns.items()
+            if value is not None and str(value).strip()
+        }
+
+        return {
+            "parse_structure": parse_structure,
+            "strict_mode": bool(header_config.get("strict_mode", False)),
+            "field_patterns": field_patterns,
+        }

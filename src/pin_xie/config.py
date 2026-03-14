@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 import tomllib
 
 from .header import CONTEXT_ONLY_STRUCTURE
@@ -44,17 +46,31 @@ class DemoConfig:
     output: OutputConfig
 
 
-def load_demo_config(config_path: Path) -> DemoConfig:
+def read_toml_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists() or not config_path.is_file():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with config_path.open("rb") as fp:
-        data = tomllib.load(fp)
+        return tomllib.load(fp)
+
+
+def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
+    if not isinstance(data, Mapping):
+        raise ValueError("Config root must be a TOML table")
 
     spell_data = data.get("spell", {})
     tokenizer_data = data.get("tokenizer", {})
     header_data = data.get("header", {})
     output_data = data.get("output", {})
+
+    if not isinstance(spell_data, Mapping):
+        raise ValueError("spell must be a TOML table")
+    if not isinstance(tokenizer_data, Mapping):
+        raise ValueError("tokenizer must be a TOML table")
+    if not isinstance(header_data, Mapping):
+        raise ValueError("header must be a TOML table")
+    if not isinstance(output_data, Mapping):
+        raise ValueError("output must be a TOML table")
 
     spell = SpellConfig(
         tau_ratio=float(spell_data.get("tau_ratio", 0.5)),
@@ -76,7 +92,7 @@ def load_demo_config(config_path: Path) -> DemoConfig:
         raise ValueError("header.parse_structure must contain '<context>'")
 
     raw_field_patterns = header_data.get("field_patterns", {})
-    if not isinstance(raw_field_patterns, dict):
+    if not isinstance(raw_field_patterns, Mapping):
         raise ValueError("header.field_patterns must be a TOML table")
 
     field_patterns: dict[str, str] = {
@@ -104,3 +120,7 @@ def load_demo_config(config_path: Path) -> DemoConfig:
         header=header,
         output=output,
     )
+
+
+def load_demo_config(config_path: Path) -> DemoConfig:
+    return parse_demo_config(read_toml_config(config_path))

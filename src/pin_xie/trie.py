@@ -25,7 +25,9 @@ class PrefixTree:
             self.insert(cluster)
 
     def insert(self, cluster: LCSObject) -> None:
-        constant_tokens = [token for token in cluster.template_tokens if token != "*"]
+        constant_tokens = [
+            token for token in cluster.template_tokens if token is not None
+        ]
         if not constant_tokens:
             return
 

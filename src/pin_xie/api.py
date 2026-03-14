@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from collections.abc import Iterable, Iterator
+from typing import Any
 
-from .config import DemoConfig, load_demo_config
+from .cluster import LCSObject
+from .config import (
+    DemoConfig,
+    load_demo_config,
+    parse_demo_config,
+    read_toml_config,
+)
 from .header import RegexHeaderParser
 from .parser import SpellParser
+from .template import build_named_parameters, render_template_tokens
 from .tokenizer import LogTokenizer
 
 
@@ -30,6 +38,7 @@ class ParsedRecord:
     template: str
     template_tokens: list[str]
     parameters: list[str]
+    named_parameters: dict[str, str]
     log: str
     header_fields: dict[str, str]
     tokens: list[str] | None = None
@@ -42,6 +51,19 @@ class RunReport:
     parsed_output_path: Path | None
     template_output_path: Path | None
     template_cache_path: Path | None
+
+
+@dataclass
+class ConfigValidationReport:
+    requires_header_validation: bool
+    total_samples: int
+    successful_samples: int
+    failed_sample_indexes: list[int]
+    failed_samples: list[str]
+
+    @property
+    def all_samples_valid(self) -> bool:
+        return not self.failed_sample_indexes
 
 
 class PinXieEngine:
@@ -57,8 +79,109 @@ class PinXieEngine:
         return cls(config)
 
     @classmethod
+    def from_config_data(cls, data: Mapping[str, Any]) -> "PinXieEngine":
+        config = parse_demo_config(data)
+        return cls(config)
+
+    @staticmethod
+    def read_toml_config(config_path: Path | str) -> dict[str, Any]:
+        return read_toml_config(Path(config_path))
+
+    @staticmethod
+    def parse_config_data(data: Mapping[str, Any]) -> DemoConfig:
+        return parse_demo_config(data)
+
+    @classmethod
     def from_demo_config(cls, config: DemoConfig) -> "PinXieEngine":
         return cls(config)
+
+    @staticmethod
+    def validate_header_extraction(
+        config: DemoConfig,
+        samples: Iterable[str],
+    ) -> ConfigValidationReport:
+        parser = RegexHeaderParser(
+            parse_structure=config.header.parse_structure,
+            field_patterns=config.header.field_patterns,
+            strict_mode=config.header.strict_mode,
+        )
+        non_context_fields = [
+            field_name
+            for field_name in parser.fields_in_structure
+            if field_name != "context"
+        ]
+
+        normalized_samples = [sample.strip() for sample in samples if sample.strip()]
+        if not non_context_fields:
+            return ConfigValidationReport(
+                requires_header_validation=False,
+                total_samples=len(normalized_samples),
+                successful_samples=len(normalized_samples),
+                failed_sample_indexes=[],
+                failed_samples=[],
+            )
+
+        failed_sample_indexes: list[int] = []
+        failed_samples: list[str] = []
+        success_count = 0
+
+        for sample_index, sample in enumerate(normalized_samples, start=1):
+            try:
+                parsed = parser.parse(sample)
+                matched = parsed.matched
+            except ValueError:
+                matched = False
+
+            if matched:
+                success_count += 1
+                continue
+
+            failed_sample_indexes.append(sample_index)
+            failed_samples.append(sample)
+
+        return ConfigValidationReport(
+            requires_header_validation=True,
+            total_samples=len(normalized_samples),
+            successful_samples=success_count,
+            failed_sample_indexes=failed_sample_indexes,
+            failed_samples=failed_samples,
+        )
+
+    @classmethod
+    def validate_config_path(
+        cls,
+        config_path: Path | str,
+        samples: Iterable[str],
+    ) -> ConfigValidationReport:
+        config_data = cls.read_toml_config(config_path)
+        config = cls.parse_config_data(config_data)
+        return cls.validate_header_extraction(config, samples)
+
+    def set_template_variable_name(
+        self,
+        cluster_id: int,
+        var_index: int,
+        var_name: str | None,
+    ) -> None:
+        cluster = self._get_cluster_or_raise(cluster_id)
+        cluster.set_variable_name(var_index, var_name)
+
+    def set_template_variable_names(
+        self,
+        cluster_id: int,
+        variable_names: Mapping[int, str | None],
+    ) -> dict[int, str]:
+        cluster = self._get_cluster_or_raise(cluster_id)
+
+        for raw_index, var_name in variable_names.items():
+            var_index = int(raw_index)
+            cluster.set_variable_name(var_index, var_name)
+
+        return dict(cluster.variable_names)
+
+    def get_template_variable_names(self, cluster_id: int) -> dict[int, str]:
+        cluster = self._get_cluster_or_raise(cluster_id)
+        return dict(cluster.variable_names)
 
     def reset_model(self) -> None:
         self.parser = self._create_spell_parser()
@@ -85,14 +208,27 @@ class PinXieEngine:
             if field_name != "context"
         }
 
+        variable_names: dict[int, str] = {}
+        if result.cluster_id >= 0:
+            cluster = self.parser.clusters_by_id.get(result.cluster_id)
+            if cluster is not None:
+                variable_names = dict(cluster.variable_names)
+
+        rendered_template_tokens = render_template_tokens(
+            result.template_tokens,
+            variable_names,
+        )
+        named_parameters = build_named_parameters(result.parameters, variable_names)
+
         return ParsedRecord(
             line_id=effective_line_id,
             header_matched=header.matched,
             cluster_id=result.cluster_id,
             context=header.context,
-            template=" ".join(result.template_tokens),
-            template_tokens=result.template_tokens,
+            template=" ".join(rendered_template_tokens),
+            template_tokens=rendered_template_tokens,
             parameters=result.parameters,
+            named_parameters=named_parameters,
             log=log,
             header_fields=header_fields,
             tokens=result.tokens,
@@ -214,9 +350,15 @@ class PinXieEngine:
         template_dir_path = Path(template_dir)
         template_dir_path.mkdir(parents=True, exist_ok=True)
         cache_path = self.template_cache_path(template_dir_path)
+        header_config = {
+            "parse_structure": self.config.header.parse_structure,
+            "strict_mode": self.config.header.strict_mode,
+            "field_patterns": dict(self.config.header.field_patterns),
+        }
+        state = self.parser.to_template_state(header_config=header_config)
 
         with cache_path.open("w", encoding="utf-8") as fp:
-            json.dump(self.parser.to_template_state(), fp, ensure_ascii=False, indent=2)
+            json.dump(state, fp, ensure_ascii=False, indent=2)
             fp.write("\n")
 
         return cache_path
@@ -267,7 +409,11 @@ class PinXieEngine:
             )
 
             for cluster in self.parser.all_clusters():
-                template = " ".join(cluster.template_tokens)
+                rendered_template_tokens = render_template_tokens(
+                    cluster.template_tokens,
+                    cluster.variable_names,
+                )
+                template = " ".join(rendered_template_tokens)
                 line_ids_preview = ", ".join(
                     str(line_id) for line_id in cluster.line_ids[:20]
                 )
@@ -277,6 +423,10 @@ class PinXieEngine:
                 tpl_fp.write(f"Cluster {cluster.cluster_id}\n")
                 tpl_fp.write(f"  size: {cluster.size}\n")
                 tpl_fp.write(f"  template: {template}\n")
+                if cluster.variable_names:
+                    tpl_fp.write(
+                        f"  variable_names: {json.dumps(cluster.variable_names, ensure_ascii=False)}\n"
+                    )
                 tpl_fp.write(f"  line_ids_count: {len(cluster.line_ids)}\n")
                 tpl_fp.write(f"  line_ids_preview: [{line_ids_preview}]\n")
                 tpl_fp.write("\n")
@@ -328,6 +478,7 @@ class PinXieEngine:
             "template": record.template,
             "template_tokens": record.template_tokens,
             "parameters": record.parameters,
+            "named_parameters": record.named_parameters,
             "log": record.log,
         }
         for field_name, field_value in record.header_fields.items():
@@ -337,3 +488,9 @@ class PinXieEngine:
             payload["tokens"] = record.tokens
 
         return payload
+
+    def _get_cluster_or_raise(self, cluster_id: int) -> LCSObject:
+        cluster = self.parser.clusters_by_id.get(cluster_id)
+        if cluster is None:
+            raise KeyError(f"Cluster not found: {cluster_id}")
+        return cluster

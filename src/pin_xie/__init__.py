@@ -1,4 +1,5 @@
 from .api import (
+    ConfigValidationReport,
     TEMPLATE_CACHE_FILE,
     ParsedRecord,
     PinXieEngine,
@@ -13,6 +14,8 @@ from .config import (
     SpellConfig,
     TokenizerConfig,
     load_demo_config,
+    parse_demo_config,
+    read_toml_config,
 )
 from .header import (
     CONTEXT_ONLY_STRUCTURE,
@@ -31,6 +34,7 @@ __all__ = [
     "PinXieEngine",
     "RunMode",
     "RunReport",
+    "ConfigValidationReport",
     "TEMPLATE_CACHE_FILE",
     "LCSObject",
     "LogTokenizer",
@@ -51,7 +55,9 @@ __all__ = [
     "jaccard_similarity",
     "lcs",
     "load_demo_config",
+    "parse_demo_config",
     "merge_template",
+    "read_toml_config",
     "select_best_cluster",
     "tokenize",
     "trie_match",

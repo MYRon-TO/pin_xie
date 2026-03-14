@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 
-def lcs(a: list[str], b: list[str]) -> tuple[int, list[str]]:
+
+def lcs(a: Sequence[str | None], b: Sequence[str]) -> tuple[int, list[str]]:
     m = len(a)
     n = len(b)
 
@@ -24,7 +26,10 @@ def lcs(a: list[str], b: list[str]) -> tuple[int, list[str]]:
     result: list[str] = []
     while i > 0 and j > 0:
         if a[i - 1] == b[j - 1]:
-            result.append(a[i - 1])
+            token = a[i - 1]
+            if token is None:
+                raise ValueError("LCS internal error: variable slot matched a token")
+            result.append(token)
             i -= 1
             j -= 1
             continue
