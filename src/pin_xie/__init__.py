@@ -1,5 +1,6 @@
 from .api import (
     ConfigValidationReport,
+    FailureItem,
     TEMPLATE_CACHE_FILE,
     ParsedRecord,
     PinXieEngine,
@@ -19,7 +20,9 @@ from .config import (
 )
 from .header import (
     CONTEXT_ONLY_STRUCTURE,
+    HeaderConfigurationError,
     HeaderParseResult,
+    HeaderValidationIssue,
     RegexHeaderParser,
 )
 from .lcs import lcs
@@ -35,6 +38,7 @@ __all__ = [
     "RunMode",
     "RunReport",
     "ConfigValidationReport",
+    "FailureItem",
     "TEMPLATE_CACHE_FILE",
     "LCSObject",
     "LogTokenizer",
@@ -44,9 +48,11 @@ __all__ = [
     "SpellParser",
     "TrieNode",
     "CONTEXT_ONLY_STRUCTURE",
+    "HeaderConfigurationError",
     "DemoConfig",
     "HeaderConfig",
     "HeaderParseResult",
+    "HeaderValidationIssue",
     "OutputConfig",
     "SpellConfig",
     "TokenizerConfig",

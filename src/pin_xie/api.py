@@ -14,7 +14,12 @@ from .config import (
     parse_demo_config,
     read_toml_config,
 )
-from .header import RegexHeaderParser
+from .header import (
+    CONTEXT_ONLY_STRUCTURE,
+    HeaderConfigurationError,
+    HeaderValidationIssue,
+    RegexHeaderParser,
+)
 from .parser import SpellParser
 from .template import build_named_parameters, render_template_tokens
 from .tokenizer import LogTokenizer
@@ -58,12 +63,33 @@ class ConfigValidationReport:
     requires_header_validation: bool
     total_samples: int
     successful_samples: int
-    failed_sample_indexes: list[int]
-    failed_samples: list[str]
+    failures: list["FailureItem"]
 
     @property
     def all_samples_valid(self) -> bool:
-        return not self.failed_sample_indexes
+        return not self.failures
+
+    @property
+    def failed_sample_indexes(self) -> list[int]:
+        return [failure.index for failure in self.failures if failure.stage == "sample"]
+
+    @property
+    def failed_samples(self) -> list[str]:
+        return [
+            failure.sample for failure in self.failures if failure.stage == "sample"
+        ]
+
+
+@dataclass
+class FailureItem:
+    index: int
+    sample: str
+    stage: str
+    reason: str
+    message: str
+    field: str | None = None
+    pattern: str | None = None
+    structure_part: str | None = None
 
 
 class PinXieEngine:
@@ -84,6 +110,43 @@ class PinXieEngine:
         return cls(config)
 
     @staticmethod
+    def _normalize_samples(samples: Iterable[str]) -> list[str]:
+        return [sample.strip() for sample in samples if sample.strip()]
+
+    @staticmethod
+    def _build_failure_item(
+        issue: HeaderValidationIssue,
+        *,
+        index: int,
+        sample: str,
+    ) -> FailureItem:
+        return FailureItem(
+            index=index,
+            sample=sample,
+            stage=issue.stage,
+            reason=issue.reason,
+            message=issue.message,
+            field=issue.field,
+            pattern=issue.pattern,
+            structure_part=issue.structure_part,
+        )
+
+    @classmethod
+    def _build_config_failure_report(
+        cls,
+        issue: HeaderValidationIssue,
+        samples: Iterable[str],
+    ) -> ConfigValidationReport:
+        normalized_samples = cls._normalize_samples(samples)
+        # INFO: stage=config has no natural sample reference, so use index=0 and sample="".
+        return ConfigValidationReport(
+            requires_header_validation=True,
+            total_samples=len(normalized_samples),
+            successful_samples=0,
+            failures=[cls._build_failure_item(issue, index=0, sample="")],
+        )
+
+    @staticmethod
     def read_toml_config(config_path: Path | str) -> dict[str, Any]:
         return read_toml_config(Path(config_path))
 
@@ -100,51 +163,55 @@ class PinXieEngine:
         config: DemoConfig,
         samples: Iterable[str],
     ) -> ConfigValidationReport:
-        parser = RegexHeaderParser(
-            parse_structure=config.header.parse_structure,
-            field_patterns=config.header.field_patterns,
-            strict_mode=config.header.strict_mode,
-        )
+        normalized_samples = PinXieEngine._normalize_samples(samples)
+
+        try:
+            parser = RegexHeaderParser(
+                parse_structure=config.header.parse_structure,
+                field_patterns=config.header.field_patterns,
+                strict_mode=config.header.strict_mode,
+            )
+        except HeaderConfigurationError as exc:
+            return PinXieEngine._build_config_failure_report(
+                exc.issue, normalized_samples
+            )
+
         non_context_fields = [
             field_name
             for field_name in parser.fields_in_structure
             if field_name != "context"
         ]
 
-        normalized_samples = [sample.strip() for sample in samples if sample.strip()]
         if not non_context_fields:
             return ConfigValidationReport(
                 requires_header_validation=False,
                 total_samples=len(normalized_samples),
                 successful_samples=len(normalized_samples),
-                failed_sample_indexes=[],
-                failed_samples=[],
+                failures=[],
             )
 
-        failed_sample_indexes: list[int] = []
-        failed_samples: list[str] = []
+        failures: list[FailureItem] = []
         success_count = 0
 
         for sample_index, sample in enumerate(normalized_samples, start=1):
-            try:
-                parsed = parser.parse(sample)
-                matched = parsed.matched
-            except ValueError:
-                matched = False
-
-            if matched:
+            issue = parser.validate_sample(sample)
+            if issue is None:
                 success_count += 1
                 continue
 
-            failed_sample_indexes.append(sample_index)
-            failed_samples.append(sample)
+            failures.append(
+                PinXieEngine._build_failure_item(
+                    issue,
+                    index=sample_index,
+                    sample=sample,
+                )
+            )
 
         return ConfigValidationReport(
             requires_header_validation=True,
             total_samples=len(normalized_samples),
             successful_samples=success_count,
-            failed_sample_indexes=failed_sample_indexes,
-            failed_samples=failed_samples,
+            failures=failures,
         )
 
     @classmethod
@@ -154,8 +221,25 @@ class PinXieEngine:
         samples: Iterable[str],
     ) -> ConfigValidationReport:
         config_data = cls.read_toml_config(config_path)
+        normalized_samples = cls._normalize_samples(samples)
+
+        header_data = config_data.get("header", {})
+        if isinstance(header_data, Mapping):
+            parse_structure = str(
+                header_data.get("parse_structure", CONTEXT_ONLY_STRUCTURE)
+            )
+            if "<context>" not in parse_structure:
+                return cls._build_config_failure_report(
+                    HeaderValidationIssue(
+                        stage="config",
+                        reason="parse_structure_missing_context",
+                        message="header.parse_structure must contain '<context>'",
+                    ),
+                    normalized_samples,
+                )
+
         config = cls.parse_config_data(config_data)
-        return cls.validate_header_extraction(config, samples)
+        return cls.validate_header_extraction(config, normalized_samples)
 
     def set_template_variable_name(
         self,

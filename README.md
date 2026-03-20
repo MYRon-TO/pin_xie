@@ -145,6 +145,14 @@ print(record.cluster_id, record.template)
 
 说明：仅当 `parse_structure` 中包含 `<context>` 之外的 header 字段时才会执行该校验；如果配置为纯 `<context>`，会直接返回通过。
 
+校验结果返回 `ConfigValidationReport`，包含：
+
+- `requires_header_validation`：是否真的执行了 header 校验
+- `total_samples` / `successful_samples`：样本总数与通过数
+- `failures`：失败项列表；每项包含 `index`、`sample`、`stage`、`reason`、`message`，以及按需返回的 `field` / `pattern` / `structure_part`
+
+失败报告只保留每条样本的首个问题点，并在 `message` 中附带 `trace` 轨迹，方便调用方自行调整 `parse_structure` 或 `field_patterns`。
+
 ## 配置说明（TOML）
 
 ### `[spell]`
