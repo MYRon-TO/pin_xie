@@ -148,3 +148,20 @@ def test_validate_header_extraction_skips_pure_context() -> None:
     assert report.total_samples == 2
     assert report.successful_samples == 2
     assert report.failures == []
+
+
+def test_validate_header_extraction_validates_literal_prefixed_context() -> None:
+    config = build_config(parse_structure="13abc<context>", field_patterns={})
+
+    report = PinXieEngine.validate_header_extraction(config, ["13abcok", "wrong"])
+
+    assert report.requires_header_validation is True
+    assert report.total_samples == 2
+    assert report.successful_samples == 1
+    assert len(report.failures) == 1
+
+    failure = report.failures[0]
+    assert failure.index == 2
+    assert failure.sample == "wrong"
+    assert failure.reason == "parse_structure_mismatch"
+    assert failure.structure_part == "start"

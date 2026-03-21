@@ -181,8 +181,12 @@ class PinXieEngine:
             for field_name in parser.fields_in_structure
             if field_name != "context"
         ]
+        has_literal_constraints = any(
+            not char.isspace()
+            for char in parser.parse_structure.replace(CONTEXT_ONLY_STRUCTURE, "")
+        )
 
-        if not non_context_fields:
+        if not non_context_fields and not has_literal_constraints:
             return ConfigValidationReport(
                 requires_header_validation=False,
                 total_samples=len(normalized_samples),
