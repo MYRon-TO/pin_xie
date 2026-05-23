@@ -1,5 +1,5 @@
 [spell]
-tau_ratio = 0.5
+tau_ratio = 0.75
 
 [tokenizer]
 delimiters = '[ =,:()\[\]\t\n\r]+'
