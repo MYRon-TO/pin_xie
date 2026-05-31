@@ -1,5 +1,5 @@
 [spell]
-tau_ratio = 0.5
+tau_ratio = 0.75
 
 [tokenizer]
 delimiters = '[ =,:()\[\]\t\n\r]+'
@@ -11,15 +11,19 @@ mask_patterns = [
 ]
 
 [header]
-parse_structure = '<time>,<entity>,<context>'
+parse_structure = '<time>, <user_name>, <context>'
 strict_mode = false
 
 [header.field_patterns]
-time = '\d{4}/\d{1,2}/\d{1,2}\s+(?:[01]?\d|2[0-3]):[0-5]\d'
-entity = '[\p{L}\p{N}_.@-]+'
+time = '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z'
+user_name = '[\p{L}\p{N}_.@-]+'
 
 [output]
 dir = 'output'
 parsed_file = 'parsed_results.jsonl'
 template_file = 'templates.txt'
 show_tokens = false
+
+[timestamp]
+field = "time"
+# format = "%Y-%m-%dT%H:%M:%SZ"

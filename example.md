@@ -1,33 +1,6 @@
-examples/key_logs_abnormal_labeled.csv
-```csv
-_time,user,content,label
-2025/11/19 4:00,user16,用户 user16 请求登录系统,0
-2025/11/19 4:03,user16,验证用户 user16 的凭据,0
-2025/11/19 4:06,user16,为用户 user16 创建会话,0
-2025/11/19 4:08,user16,用户 user16 请求下载文件 file4,0
-2025/11/19 4:09,user16,验证用户 user16 对文件 file4 的访问权限,0
-2025/11/19 4:11,user16,准备文件 file4 传输,0
-2025/11/19 4:15,user16,开始文件 file4 下载,0
-2025/11/19 4:17,user16,文件 file4 下载完成，更新下载记录,0
-2025/11/19 4:22,user16,用户 user16 发起一级密钥销毁请求，目标密钥: key004,0
-2025/11/19 4:25,user16,验证用户 user16 的密钥销毁权限,0
-```
+### 原始脚本
 
-examples/key_logs_abnormal_labeled.log
-```csv
-2025/11/19 4:00,user16,用户 user16 请求登录系统
-2025/11/19 4:03,user16,验证用户 user16 的凭据
-2025/11/19 4:06,user16,为用户 user16 创建会话
-2025/11/19 4:08,user16,用户 user16 请求下载文件 file4
-2025/11/19 4:09,user16,验证用户 user16 对文件 file4 的访问权限
-2025/11/19 4:11,user16,准备文件 file4 传输
-2025/11/19 4:15,user16,开始文件 file4 下载
-2025/11/19 4:17,user16,文件 file4 下载完成，更新下载记录
-2025/11/19 4:22,user16,用户 user16 发起一级密钥销毁请求，目标密钥: key004
-2025/11/19 4:25,user16,验证用户 user16 的密钥销毁权限
-```
-
-已完成脚本：`scripts/build_training_csv.py`
+脚本：`scripts/build_training_csv.py`
 
 核心逻辑：
 
@@ -37,31 +10,45 @@ examples/key_logs_abnormal_labeled.log
 - 对每行日志解析出 `cluster_id` 作为 `event_col`
 - 输出训练 CSV：`entity_col,event_col,label`
 
-运行命令：
-
-```bash
-python scripts/build_training_csv.py \
-  --input examples/key_logs_abnormal_labeled.csv \
-  --output output/key_logs_training.csv \
-  --config config/Config.dynamic_example.toml
-```
-
-如果希望事件 ID 带前缀，比如 `E0/E1/...`：
-
-```bash
-python scripts/build_training_csv.py \
-  --input examples/key_logs_abnormal_labeled.csv \
-  --output output/key_logs_training.csv \
-  --config config/Config.dynamic_example.toml \
-  --event-prefix E
-```
-
-输出格式示例：
-
+### 新数据格式样本
 ```csv
-entity_col,event_col,label
-user16,0,0
-user16,1,0
+host,content,is_attack,attack_type,technique,tactic,attack_name
+user-host-01,用户 purplecat0 请求登录系统,false,,,,
+user-host-01,验证用户 purplecat0 的凭据,false,,,,
+user-host-01,为用户 purplecat0 创建会话,false,,,,
+user-host-09,用户 muscularfox15 发生重复登录尝试,true,multiple_login_attempts,T1110,credential_access,Multiple repeated login attempts
+user-host-09,用户 muscularfox15 发生重复登录尝试,true,multiple_login_attempts,T1110,credential_access,Multiple repeated login attempts
+user-host-09,用户 muscularfox15 发生重复登录尝试,true,multiple_login_attempts,T1110,credential_access,Multiple repeated login attempts
+user-host-09,用户 muscularfox15 发生重复登录尝试,true,multiple_login_attempts,T1110,credential_access,Multiple repeated login attempts
+user-host-09,验证用户 muscularfox15 的凭据,false,,,,
 ```
 
-我没有直接查看大原始文件，只用临时小样例做了冒烟测试。脚本是流式逐行处理 CSV，不会一次性把大文件读进内存。
+### 新的输出要求
+
+形如：
+```csv
+entity_col,event_col,content,label,atack_name
+user-host-01,2,验证用户 purplecat0 的凭据,0,
+user-host-09,1,用户 muscularfox15 发生重复登录尝试,1,Multiple repeated login attempts
+user-host-09,2,验证用户 muscularfox15 的凭据,2,Multiple repeated login attempts
+```
+
+相同的 host 为一条序列，
+目前可以保证：同一序列在文件中的位置是连续的。
+序列中日志的先后顺序不应当被改变。
+
+序列中存在一个异常日志，整个序列都记作异常序列
+
+字段 label 可能的取值为:
+- 0: 正常序列中的正常日志
+- 1: 异常序列中的异常日志
+- 2: 异常序列中的正常日志
+
+entity_col 照搬 host 列
+content 列直接照搬
+
+异常日志序列中所有日志的 attack_name 都为异常日志的 attack_name。
+请注意，一个日志序列中可能发生多次不同的攻击，attack_name 应该采取列表的方式存储
+
+请注意 technique 字段值为 "T1070" 的日志不应当输出，
+但需要正常的干涉序列，如标记为异常序列，为其他日志添加 attack_name , 设置 label 之类的行为
