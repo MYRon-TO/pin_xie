@@ -28,6 +28,7 @@ from .header import (
     RegexHeaderParser,
 )
 from .lcs import lcs
+from .multiline import LogAssemblyError, LogicalLog, LogRecordAssembler
 from .parser import ParseResult, SpellParser, select_best_cluster
 from .similarity import jaccard_filter, jaccard_similarity
 from .template import extract_parameters, merge_template
@@ -47,7 +48,10 @@ __all__ = [
     "InputConfig",
     "InputMode",
     "LCSObject",
+    "LogAssemblyError",
+    "LogRecordAssembler",
     "LogTokenizer",
+    "LogicalLog",
     "OutputConfig",
     "ParseResult",
     "ParsedRecord",
