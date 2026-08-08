@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from pin_xie import (
+    DemoConfig,
+    HeaderConfig,
+    InputConfig,
+    InputMode,
+    OutputConfig,
+    PinXieEngine,
+    RunMode,
+    SpellConfig,
+    TokenizerConfig,
+)
+
+
+def build_config(tmp_path: Path, mode: InputMode) -> DemoConfig:
+    multiline = mode is InputMode.MULTILINE
+    return DemoConfig(
+        input=InputConfig(mode=mode),
+        spell=SpellConfig(),
+        tokenizer=TokenizerConfig(use_jieba=False),
+        header=HeaderConfig(
+            parse_structure="<time> <level> <context>" if multiline else "<context>",
+            strict_mode=multiline,
+            field_patterns=(
+                {"time": r"\d{4}-\d{2}-\d{2}", "level": r"INFO|ERROR"}
+                if multiline
+                else {}
+            ),
+        ),
+        output=OutputConfig(dir=tmp_path / "output", show_tokens=True),
+    )
+
+
+def multiline_lines() -> list[str]:
+    return [
+        "2026-03-20 ERROR failed\n",
+        "Traceback:\n",
+        "  File app.py\n",
+        "\n",
+        "2026-03-21 INFO recovered\n",
+    ]
+
+
+def test_process_log_parses_multiline_and_process_line_delegates(tmp_path: Path) -> None:
+    log = "2026-03-20 ERROR failed\n  detail"
+    direct = PinXieEngine(build_config(tmp_path, InputMode.MULTILINE)).process_log(
+        log, line_id=7, end_line_id=8
+    )
+    compatibility = PinXieEngine(
+        build_config(tmp_path, InputMode.MULTILINE)
+    ).process_line(log, line_id=7, end_line_id=8)
+
+    assert direct == compatibility
+    assert direct.context == "failed\n  detail"
+    assert direct.log == log
+    assert (direct.line_id, direct.end_line_id, direct.physical_line_count) == (7, 8, 2)
+
+
+def test_process_log_validates_line_range(tmp_path: Path) -> None:
+    engine = PinXieEngine(build_config(tmp_path, InputMode.SINGLE))
+    with pytest.raises(ValueError, match="end_line_id"):
+        engine.process_log("message", line_id=3, end_line_id=2)
+
+
+def test_process_lines_uses_mode_specific_assembly(tmp_path: Path) -> None:
+    single = PinXieEngine(build_config(tmp_path, InputMode.SINGLE))
+    single_records = list(single.process_lines([" first  \n", "\n", "last\n"], start_line_id=4))
+    assert [(r.log, r.line_id, r.end_line_id) for r in single_records] == [
+        (" first  ", 4, 4),
+        ("last", 6, 6),
+    ]
+
+    multiline = PinXieEngine(build_config(tmp_path, InputMode.MULTILINE))
+    records = list(multiline.process_lines(multiline_lines()))
+    assert [(r.line_id, r.end_line_id, r.physical_line_count) for r in records] == [
+        (1, 4, 4),
+        (5, 5, 1),
+    ]
+    assert records[0].context == "failed\nTraceback:\n  File app.py\n"
+
+
+@pytest.mark.parametrize("mode", [RunMode.LEARN, RunMode.LEARN_PARSE, RunMode.PARSE])
+def test_run_modes_share_boundaries_and_counts(
+    tmp_path: Path, mode: RunMode
+) -> None:
+    config = build_config(tmp_path, InputMode.MULTILINE)
+    log_path = tmp_path / "input.log"
+    log_path.write_text("".join(multiline_lines()), encoding="utf-8")
+    cache_dir = tmp_path / "cache"
+    if mode is RunMode.PARSE:
+        PinXieEngine(config).run_file(
+            log_path, mode=RunMode.LEARN, template_dir=cache_dir
+        )
+
+    report = PinXieEngine(config).run_file(log_path, mode=mode, template_dir=cache_dir)
+
+    assert report.processed_records == 2
+    assert report.processed_physical_lines == 5
+    assert not hasattr(report, "processed_lines")
+    if mode is RunMode.LEARN:
+        assert report.parsed_output_path is None
+    else:
+        assert report.parsed_output_path is not None
+        payloads = [
+            json.loads(line)
+            for line in report.parsed_output_path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert len(payloads) == 2
+        assert payloads[0]["log"].endswith("  File app.py\n")
+        assert payloads[0]["context"].endswith("  File app.py\n")
+        assert payloads[0]["line_id"] == 1
+        assert payloads[0]["end_line_id"] == 4
+        assert payloads[0]["physical_line_count"] == 4
+
+
+def test_run_file_counts_skipped_single_mode_blank_lines(tmp_path: Path) -> None:
+    engine = PinXieEngine(build_config(tmp_path, InputMode.SINGLE))
+    log_path = tmp_path / "single.log"
+    log_path.write_text("one\n\n  \ntwo\n", encoding="utf-8")
+
+    report = engine.run_file(
+        log_path,
+        mode=RunMode.LEARN,
+        template_dir=tmp_path / "cache",
+        write_parsed_output=False,
+    )
+
+    assert report.processed_records == 2
+    assert report.processed_physical_lines == 4
+    assert sum(cluster.size for cluster in engine.parser.all_clusters()) == 2

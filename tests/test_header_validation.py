@@ -237,7 +237,7 @@ def test_header_line_is_anchored_and_parse_supports_multiline_context() -> None:
 
     result = parser.parse("ERROR failed\n  traceback\n")
     assert result.matched is True
-    assert result.context == "failed\n  traceback"
+    assert result.context == "failed\n  traceback\n"
 
 
 def test_explicit_leading_space_and_header_only_line() -> None:

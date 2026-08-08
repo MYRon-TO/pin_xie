@@ -45,7 +45,8 @@ def run_demo(args: argparse.Namespace) -> int:
     )
 
     print(f"Mode: {report.mode.value}")
-    print(f"Processed lines: {report.processed_lines}")
+    print(f"Processed records: {report.processed_records}")
+    print(f"Processed physical lines: {report.processed_physical_lines}")
     if report.parsed_output_path is not None:
         print(f"Per-line output: {report.parsed_output_path}")
     if report.template_output_path is not None:

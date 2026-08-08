@@ -639,16 +639,18 @@ class RegexHeaderParser:
 
             return HeaderParseResult(
                 matched=False,
-                context=log.strip(),
+                context=log,
                 fields={},
             )
 
         parsed_fields: dict[str, str] = {}
         for field_name in self.fields_in_structure:
             value = match.group(field_name)
-            parsed_fields[field_name] = value.strip() if value is not None else ""
+            parsed_fields[field_name] = (
+                value if field_name == "context" and value is not None else (value or "").strip()
+            )
 
-        context = parsed_fields.get("context", "").strip()
+        context = parsed_fields.get("context", "")
 
         return HeaderParseResult(
             matched=True,

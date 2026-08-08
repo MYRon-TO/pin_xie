@@ -21,6 +21,7 @@ from .header import (
     HeaderValidationIssue,
     RegexHeaderParser,
 )
+from .multiline import LogRecordAssembler
 from .parser import SpellParser
 from .template import build_named_parameters, render_template_tokens
 from .tokenizer import LogTokenizer
@@ -37,6 +38,8 @@ class RunMode(str, Enum):
 @dataclass
 class ParsedRecord:
     line_id: int
+    end_line_id: int
+    physical_line_count: int
     header_matched: bool
     cluster_id: int
     context: str
@@ -52,7 +55,8 @@ class ParsedRecord:
 @dataclass
 class RunReport:
     mode: RunMode
-    processed_lines: int
+    processed_records: int
+    processed_physical_lines: int
     parsed_output_path: Path | None
     template_output_path: Path | None
     template_cache_path: Path | None
@@ -295,52 +299,63 @@ class PinXieEngine:
     def reset_model(self) -> None:
         self.parser = self._create_spell_parser()
 
-    def process_line(
+    def process_log(
         self,
         log: str,
         *,
         line_id: int | None = None,
+        end_line_id: int | None = None,
         update_model: bool = True,
     ) -> ParsedRecord:
         effective_line_id = self.parser.next_line_id if line_id is None else line_id
+        effective_end_line_id = effective_line_id if end_line_id is None else end_line_id
+        if effective_end_line_id < effective_line_id:
+            raise ValueError("end_line_id must be greater than or equal to line_id")
 
         header = self.header_parser.parse(log)
         result = self.parser.process(
-            header.context,
-            line_id=line_id,
-            update_model=update_model,
+            header.context, line_id=line_id, update_model=update_model
         )
-
         header_fields = {
-            field_name: field_value
-            for field_name, field_value in header.fields.items()
-            if field_name != "context"
+            name: value for name, value in header.fields.items() if name != "context"
         }
-
         variable_names: dict[int, str] = {}
         if result.cluster_id >= 0:
             cluster = self.parser.clusters_by_id.get(result.cluster_id)
             if cluster is not None:
                 variable_names = dict(cluster.variable_names)
-
         rendered_template_tokens = render_template_tokens(
-            result.template_tokens,
-            variable_names,
+            result.template_tokens, variable_names
         )
-        named_parameters = build_named_parameters(result.parameters, variable_names)
-
         return ParsedRecord(
             line_id=effective_line_id,
+            end_line_id=effective_end_line_id,
+            physical_line_count=effective_end_line_id - effective_line_id + 1,
             header_matched=header.matched,
             cluster_id=result.cluster_id,
             context=header.context,
             template=" ".join(rendered_template_tokens),
             template_tokens=rendered_template_tokens,
             parameters=result.parameters,
-            named_parameters=named_parameters,
+            named_parameters=build_named_parameters(result.parameters, variable_names),
             log=log,
             header_fields=header_fields,
             tokens=result.tokens,
+        )
+
+    def process_line(
+        self,
+        log: str,
+        *,
+        line_id: int | None = None,
+        end_line_id: int | None = None,
+        update_model: bool = True,
+    ) -> ParsedRecord:
+        return self.process_log(
+            log,
+            line_id=line_id,
+            end_line_id=end_line_id,
+            update_model=update_model,
         )
 
     def process_lines(
@@ -350,12 +365,14 @@ class PinXieEngine:
         start_line_id: int = 1,
         update_model: bool = True,
     ) -> Iterator[ParsedRecord]:
-        for index, raw_log in enumerate(logs, start=start_line_id):
-            log = raw_log.strip()
-            if not log:
-                continue
-
-            yield self.process_line(log, line_id=index, update_model=update_model)
+        assembler = LogRecordAssembler(self.config.input.mode, self.header_parser)
+        for logical_log in assembler.assemble(logs, start_line=start_line_id):
+            yield self.process_log(
+                logical_log.text,
+                line_id=logical_log.start_line,
+                end_line_id=logical_log.end_line,
+                update_model=update_model,
+            )
 
     def run_file(
         self,
@@ -399,42 +416,31 @@ class PinXieEngine:
             parsed_output_path = output_dir / self.config.output.parsed_file
             template_output_path = output_dir / self.config.output.template_file
 
-        processed_count = 0
-        if should_write_parsed_output and parsed_output_path is not None:
-            with (
-                log_path.open("r", encoding="utf-8") as input_fp,
-                parsed_output_path.open("w", encoding="utf-8") as parsed_fp,
-            ):
-                for index, raw_line in enumerate(input_fp, start=1):
-                    log = raw_line.strip()
-                    if not log:
-                        continue
+        processed_records = 0
+        processed_physical_lines = 0
 
-                    record = self.process_line(
-                        log,
-                        line_id=index,
-                        update_model=should_update_model,
-                    )
-                    payload = self._record_to_payload(
-                        record,
-                        show_tokens=self.config.output.show_tokens,
-                    )
-                    parsed_fp.write(json.dumps(payload, ensure_ascii=False))
-                    parsed_fp.write("\n")
-                    processed_count += 1
-        else:
-            with log_path.open("r", encoding="utf-8") as input_fp:
-                for index, raw_line in enumerate(input_fp, start=1):
-                    log = raw_line.strip()
-                    if not log:
-                        continue
+        def count_lines(lines: Iterable[str]) -> Iterator[str]:
+            nonlocal processed_physical_lines
+            for raw_line in lines:
+                processed_physical_lines += 1
+                yield raw_line
 
-                    self.process_line(
-                        log,
-                        line_id=index,
-                        update_model=should_update_model,
-                    )
-                    processed_count += 1
+        with log_path.open("r", encoding="utf-8") as input_fp:
+            records = self.process_lines(
+                count_lines(input_fp), update_model=should_update_model
+            )
+            if should_write_parsed_output and parsed_output_path is not None:
+                with parsed_output_path.open("w", encoding="utf-8") as parsed_fp:
+                    for record in records:
+                        payload = self._record_to_payload(
+                            record, show_tokens=self.config.output.show_tokens
+                        )
+                        parsed_fp.write(json.dumps(payload, ensure_ascii=False))
+                        parsed_fp.write("\n")
+                        processed_records += 1
+            else:
+                for _record in records:
+                    processed_records += 1
 
         if should_write_template_summary and template_output_path is not None:
             self.write_template_summary(template_output_path)
@@ -445,7 +451,8 @@ class PinXieEngine:
 
         return RunReport(
             mode=selected_mode,
-            processed_lines=processed_count,
+            processed_records=processed_records,
+            processed_physical_lines=processed_physical_lines,
             parsed_output_path=parsed_output_path
             if should_write_parsed_output
             else None,
@@ -583,6 +590,8 @@ class PinXieEngine:
     ) -> dict[str, object]:
         payload: dict[str, object] = {
             "line_id": record.line_id,
+            "end_line_id": record.end_line_id,
+            "physical_line_count": record.physical_line_count,
             "header_matched": record.header_matched,
             "cluster_id": record.cluster_id,
             "context": record.context,
