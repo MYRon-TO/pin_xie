@@ -3,3 +3,4 @@ output
 src/pin_xie.egg-info
 cache
 __pycache__
+/.pi-subagents
