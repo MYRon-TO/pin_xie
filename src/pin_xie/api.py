@@ -471,7 +471,10 @@ class PinXieEngine:
             "strict_mode": self.config.header.strict_mode,
             "field_patterns": dict(self.config.header.field_patterns),
         }
-        state = self.parser.to_template_state(header_config=header_config)
+        input_config = {"mode": self.config.input.mode.value}
+        state = self.parser.to_template_state(
+            input_config=input_config, header_config=header_config
+        )
 
         with cache_path.open("w", encoding="utf-8") as fp:
             json.dump(state, fp, ensure_ascii=False, indent=2)
@@ -496,10 +499,19 @@ class PinXieEngine:
                 "Invalid template cache: root must be an object"
             )
 
-        self.parser = SpellParser.from_template_state(
+        input_config = {"mode": self.config.input.mode.value}
+        header_config = {
+            "parse_structure": self.config.header.parse_structure,
+            "strict_mode": self.config.header.strict_mode,
+            "field_patterns": dict(self.config.header.field_patterns),
+        }
+        loaded_parser = SpellParser.from_template_state(
             state,
             tokenizer=self.tokenizer,
+            input_config=input_config,
+            header_config=header_config,
         )
+        self.parser = loaded_parser
         return cache_path
 
     def write_template_summary(self, output_path: Path | str) -> Path:

@@ -134,3 +134,97 @@ def test_run_file_counts_skipped_single_mode_blank_lines(tmp_path: Path) -> None
     assert report.processed_records == 2
     assert report.processed_physical_lines == 4
     assert sum(cluster.size for cluster in engine.parser.all_clusters()) == 2
+
+
+def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> None:
+    config = build_config(tmp_path, InputMode.MULTILINE)
+    engine = PinXieEngine(config)
+    engine.process_log("2026-03-20 ERROR failed", line_id=1)
+    cache_dir = tmp_path / "cache"
+
+    cache_path = engine.save_template_cache(cache_dir)
+    state = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert state["version"] == 2
+    assert state["input"] == {"mode": "multiline"}
+    assert state["header"] == {
+        "parse_structure": "<time> <level> <context>",
+        "strict_mode": True,
+        "field_patterns": {
+            "time": r"\d{4}-\d{2}-\d{2}",
+            "level": r"INFO|ERROR",
+        },
+    }
+    loaded = PinXieEngine(config)
+    loaded.load_template_cache(cache_dir)
+    assert len(loaded.parser.all_clusters()) == 1
+
+
+@pytest.mark.parametrize(
+    ("mutate", "difference"),
+    [
+        (lambda state: state["input"].update(mode="single"), "input.mode"),
+        (
+            lambda state: state["header"].update(parse_structure="<level> <context>"),
+            "header.parse_structure",
+        ),
+        (lambda state: state["header"].update(strict_mode=False), "header.strict_mode"),
+        (
+            lambda state: state["header"].update(field_patterns={"level": "INFO"}),
+            "header.field_patterns",
+        ),
+    ],
+)
+def test_template_cache_rejects_each_config_difference(
+    tmp_path: Path, mutate: object, difference: str
+) -> None:
+    config = build_config(tmp_path, InputMode.MULTILINE)
+    cache_dir = tmp_path / "cache"
+    cache_path = PinXieEngine(config).save_template_cache(cache_dir)
+    state = json.loads(cache_path.read_text(encoding="utf-8"))
+    mutate(state)  # type: ignore[operator]
+    cache_path.write_text(json.dumps(state), encoding="utf-8")
+
+    engine = PinXieEngine(config)
+    with pytest.raises(ValueError, match=rf"configuration mismatch.*{difference}"):
+        engine.load_template_cache(cache_dir)
+    assert engine.parser.all_clusters() == []
+
+
+def test_template_cache_rejects_v1_without_partial_load(tmp_path: Path) -> None:
+    config = build_config(tmp_path, InputMode.SINGLE)
+    engine = PinXieEngine(config)
+    original = engine.process_log("existing model", line_id=9).cluster_id
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "templates.json").write_text(
+        json.dumps({"version": 1, "clusters": []}), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match=r"version 1.*learn again"):
+        engine.load_template_cache(cache_dir)
+    assert [cluster.cluster_id for cluster in engine.parser.all_clusters()] == [original]
+
+
+@pytest.mark.parametrize(
+    "invalid_state",
+    [
+        [],
+        {"version": 2, "input": [], "header": {}},
+        {"version": 2, "input": {"mode": "single"}, "header": []},
+    ],
+)
+def test_template_cache_structure_failure_does_not_replace_model(
+    tmp_path: Path, invalid_state: object
+) -> None:
+    engine = PinXieEngine(build_config(tmp_path, InputMode.SINGLE))
+    engine.process_log("existing model", line_id=1)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "templates.json").write_text(
+        json.dumps(invalid_state), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="Invalid template cache"):
+        engine.load_template_cache(cache_dir)
+    assert len(engine.parser.all_clusters()) == 1

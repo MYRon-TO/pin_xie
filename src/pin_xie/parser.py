@@ -1,7 +1,9 @@
+# ruff: noqa: TRY004 - malformed public cache data is reported as ValueError
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from .cluster import LCSObject, create_cluster
 from .lcs import lcs
@@ -32,9 +34,12 @@ def select_best_cluster(
             best_lcs_len = lcs_len
             continue
 
-        if lcs_len == best_lcs_len and best_cluster is not None:
-            if len(cluster.template_tokens) < len(best_cluster.template_tokens):
-                best_cluster = cluster
+        if (
+            lcs_len == best_lcs_len
+            and best_cluster is not None
+            and len(cluster.template_tokens) < len(best_cluster.template_tokens)
+        ):
+            best_cluster = cluster
 
     if best_cluster is None or best_lcs_len < tau:
         return None
@@ -48,7 +53,6 @@ class SpellParser:
     ) -> None:
         self.tau_ratio = tau_ratio
         self.tokenizer = tokenizer or LogTokenizer()
-        self.header_config_state: dict[str, Any] | None = None
 
         self.clusters_by_id: dict[int, LCSObject] = {}
         self.cluster_order: list[int] = []
@@ -162,13 +166,15 @@ class SpellParser:
     def to_template_state(
         self,
         *,
-        header_config: Mapping[str, Any] | None = None,
+        input_config: Mapping[str, Any],
+        header_config: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if header_config is not None:
-            self.header_config_state = self._normalize_header_config(header_config)
-
-        state: dict[str, Any] = {
-            "version": 1,
+        normalized_input = self._normalize_input_config(input_config)
+        normalized_header = self._normalize_header_config(header_config)
+        return {
+            "version": 2,
+            "input": normalized_input,
+            "header": normalized_header,
             "tau_ratio": self.tau_ratio,
             "next_cluster_id": self.next_cluster_id,
             "clusters": [
@@ -181,11 +187,6 @@ class SpellParser:
             ],
         }
 
-        if self.header_config_state is not None:
-            state["header"] = self._normalize_header_config(self.header_config_state)
-
-        return state
-
     @classmethod
     def from_template_state(
         cls,
@@ -193,7 +194,12 @@ class SpellParser:
         *,
         tokenizer: LogTokenizer | None = None,
         tau_ratio: float | None = None,
-    ) -> "SpellParser":
+        input_config: Mapping[str, Any] | None = None,
+        header_config: Mapping[str, Any] | None = None,
+    ) -> SpellParser:
+        cls._validate_template_cache_config(
+            state, input_config=input_config, header_config=header_config
+        )
         raw_tau_ratio = state.get("tau_ratio", 0.5)
         effective_tau_ratio = (
             float(raw_tau_ratio) if tau_ratio is None else float(tau_ratio)
@@ -204,12 +210,6 @@ class SpellParser:
         raw_clusters = state.get("clusters", [])
         if not isinstance(raw_clusters, list):
             raise ValueError("Invalid template cache: clusters must be a list")
-
-        raw_header_config = state.get("header")
-        if raw_header_config is not None:
-            if not isinstance(raw_header_config, Mapping):
-                raise ValueError("Invalid template cache: header must be an object")
-            parser.header_config_state = cls._normalize_header_config(raw_header_config)
 
         for item in raw_clusters:
             if not isinstance(item, Mapping):
@@ -281,26 +281,78 @@ class SpellParser:
         parser._rebuild_trie()
         return parser
 
+    @classmethod
+    def _validate_template_cache_config(
+        cls,
+        state: Mapping[str, Any],
+        *,
+        input_config: Mapping[str, Any] | None,
+        header_config: Mapping[str, Any] | None,
+    ) -> None:
+        if not isinstance(state, Mapping):
+            raise ValueError("Invalid template cache: root must be an object")
+        version = state.get("version")
+        if version == 1:
+            raise ValueError(
+                "Unsupported template cache version 1; run learn again to rebuild the cache"
+            )
+        if not isinstance(version, int) or isinstance(version, bool) or version != 2:
+            raise ValueError(f"Unsupported template cache version {version!r}")
+
+        cached_input = cls._normalize_input_config(state.get("input"))
+        cached_header = cls._normalize_header_config(state.get("header"))
+        differences: list[str] = []
+        if input_config is not None:
+            current_input = cls._normalize_input_config(input_config)
+            if cached_input["mode"] != current_input["mode"]:
+                differences.append("input.mode")
+        if header_config is not None:
+            current_header = cls._normalize_header_config(header_config)
+            for field in ("parse_structure", "strict_mode", "field_patterns"):
+                if cached_header[field] != current_header[field]:
+                    differences.append(f"header.{field}")
+        if differences:
+            raise ValueError(
+                "Template cache configuration mismatch: " + ", ".join(differences)
+            )
+
     @staticmethod
-    def _normalize_header_config(
-        header_config: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        parse_structure = str(header_config.get("parse_structure", "")).strip()
-        if not parse_structure:
-            raise ValueError("Invalid header config: parse_structure must be non-empty")
+    def _normalize_input_config(input_config: Any) -> dict[str, str]:
+        if not isinstance(input_config, Mapping):
+            raise ValueError("Invalid template cache: input must be an object")
+        mode = input_config.get("mode")
+        if mode not in {"single", "multiline"}:
+            raise ValueError(
+                "Invalid template cache: input.mode must be 'single' or 'multiline'"
+            )
+        return {"mode": mode}
 
-        raw_field_patterns = header_config.get("field_patterns", {})
+    @staticmethod
+    def _normalize_header_config(header_config: Any) -> dict[str, Any]:
+        if not isinstance(header_config, Mapping):
+            raise ValueError("Invalid template cache: header must be an object")
+        parse_structure = header_config.get("parse_structure")
+        if not isinstance(parse_structure, str) or not parse_structure:
+            raise ValueError(
+                "Invalid template cache: header.parse_structure must be a non-empty string"
+            )
+        strict_mode = header_config.get("strict_mode")
+        if not isinstance(strict_mode, bool):
+            raise ValueError("Invalid template cache: header.strict_mode must be a bool")
+        raw_field_patterns = header_config.get("field_patterns")
         if not isinstance(raw_field_patterns, Mapping):
-            raise ValueError("Invalid header config: field_patterns must be an object")
-
-        field_patterns = {
-            str(key): str(value)
+            raise ValueError(
+                "Invalid template cache: header.field_patterns must be an object"
+            )
+        if not all(
+            isinstance(key, str) and isinstance(value, str)
             for key, value in raw_field_patterns.items()
-            if value is not None and str(value).strip()
-        }
-
+        ):
+            raise ValueError(
+                "Invalid template cache: header.field_patterns must map strings to strings"
+            )
         return {
             "parse_structure": parse_structure,
-            "strict_mode": bool(header_config.get("strict_mode", False)),
-            "field_patterns": field_patterns,
+            "strict_mode": strict_mode,
+            "field_patterns": dict(raw_field_patterns),
         }
