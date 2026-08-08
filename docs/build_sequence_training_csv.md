@@ -12,6 +12,8 @@
 4. 跳过 `technique == "T1070" 以及 "T1550"` 的日志输出，但保留其对序列异常判断、攻击名收集、模板训练的影响；
 5. 训练后保存日志模板，后续可直接加载模板解析，避免重新训练。
 
+> 输入模式前提：该脚本把 CSV 的每个 `content` 单元作为一条已经完整组装的逻辑日志调用 `process_line()`，因此必须使用 `[input].mode = 'single'`。它不会按 CSV 单元内部的物理行执行 multiline Header 边界组装；不要为此脚本改用 multiline 配置。
+
 ---
 
 ## 2. 输入与输出格式
@@ -101,7 +103,7 @@ record.cluster_id
 config/Config.toml
 ```
 
-其中 `parse_structure = '<context>'`，因此脚本只把 `content` 传给 Pin Xie，不额外拼接时间或实体字段。
+该配置必须显式包含 `[input]` 且设置 `mode = 'single'`，并使用 `parse_structure = '<context>'`。因此脚本把每个 `content` 值作为一条完整逻辑日志直接传给 Pin Xie，不额外拼接时间或实体字段；CSV 中的换行也不会触发 multiline Header 切分。自定义 `--config` 时必须保持这一 single 模式前提。
 
 ### 3.3 label 生成规则
 
@@ -362,5 +364,6 @@ user-host-09,1,验证用户 muscularfox15 的凭据,2,"[""Multiple repeated logi
 2. 同一序列必须在文件中连续出现。
 3. `is_attack` 字段如果不是可识别的布尔值，脚本会报错。
 4. `--parse-only` 要求模板缓存已存在，否则会报错。
-5. 若训练集和测试集使用不同的 Pin Xie 配置，模板匹配结果可能不可靠。
-6. `event_col` 是模板聚类 ID，不是原始日志行号，也不是序列内编号。
+5. 训练和 `--parse-only` 必须使用完全一致的 Pin Xie `[input]` 与 `[header]` 配置；当前缓存版本会在不一致时拒绝加载，旧版缓存需重新训练。
+6. `--config` 必须使用 `input.mode = 'single'`；脚本不会替你组装 multiline 物理行。
+7. `event_col` 是模板聚类 ID，不是原始日志行号，也不是序列内编号。

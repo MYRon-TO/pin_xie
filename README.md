@@ -58,12 +58,22 @@ python -m pip install regex jieba
 
 ## 快速开始
 
-1) 准备日志文件（UTF-8 编码）
+1) 选择输入模式并准备 UTF-8 日志文件
+
+默认配置 `config/Config.toml` 使用单行模式：每个非空物理行是一条逻辑日志，纯空白行跳过，非空行的首尾空白会保留。例如：
 
 ```text
-2025/11/26 0:48,user1,验证用户 user1 对文件 file9 的访问权限
-2025/11/26 0:50,user1,权限验证结果: 有权限
-2025/11/26 0:51,user1,文件 file9 下载成功
+service started
+request completed
+```
+
+动态 Header 示例 `config/Config.dynamic_example.toml` 使用多行模式。位于位置 0 且完整匹配 Header 的物理行开始一条新日志；下一个 Header 前的空行、缩进和换行都属于当前日志。例如异常栈：
+
+```text
+2026-03-20T10:00:00Z, user1, request failed
+Traceback (most recent call last):
+  File "app.py", line 10
+2026-03-20T10:00:01Z, user1, request completed
 ```
 
 2) 运行 demo
@@ -72,7 +82,7 @@ python -m pip install regex jieba
 PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --config config/Config.dynamic_example.toml
 ```
 
-如果你的日志没有独立 header，可使用默认配置：
+无独立 Header 的逐行日志可使用默认单行配置：
 
 ```bash
 PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --config config/Config.toml
@@ -106,83 +116,96 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse
 
 ## 作为库使用
 
-你可以直接使用 `PinXieEngine` 以 API 方式集成，不依赖 CLI。
+可以直接使用 `PinXieEngine`，不依赖 CLI：
 
 ```python
-from pin_xie import PinXieEngine, RunMode
+from pin_xie import LogRecordAssembler, PinXieEngine, RunMode
 
 engine = PinXieEngine.from_config_path("config/Config.dynamic_example.toml")
 
-# 1) 学习模板（只更新模板并写缓存）
-engine.run_file("/path/to/train.log", mode=RunMode.LEARN, template_dir="cache")
+# 文件 API 接收物理行，并按 input.mode 组装逻辑日志。
+report = engine.run_file("/path/to/train.log", mode=RunMode.LEARN, template_dir="cache")
+print(report.processed_records, report.processed_physical_lines)
 
-# 2) 解析日志（只解析，不更新模板）
-report = engine.run_file("/path/to/infer.log", mode=RunMode.PARSE, template_dir="cache")
-print(report.processed_lines)
+# process_lines 同样接收物理行迭代器，并在调用结束时 flush。
+records = list(engine.process_lines(open("/path/to/infer.log", encoding="utf-8")))
 
-# 3) 流式逐行处理
-record = engine.process_line("2025/11/26 0:51,user1,文件 file9 下载成功", line_id=1)
-print(record.cluster_id, record.template)
+# process_log 接收一条已经完整组装的逻辑日志；process_line 是兼容别名。
+record = engine.process_log(
+    "2026-03-20T10:00:00Z, user1, request failed\n  stack frame",
+    line_id=10,
+    end_line_id=11,
+)
+
+# 跨批次的有状态输入由调用方显式持有组装器。
+assembler = LogRecordAssembler(engine.config.input.mode, engine.header_parser)
 ```
 
 常用 API：
 
-- `PinXieEngine.from_config_path(config_path)`：从 TOML 配置初始化
-- `PinXieEngine.read_toml_config(config_path)`：只读取 TOML 文件并返回原始字典
-- `PinXieEngine.parse_config_data(data)`：将 TOML 字典解析为 `DemoConfig`
-- `PinXieEngine.from_config_data(data)`：从 TOML 字典初始化引擎
-- `run_file(...)`：按 `learn/parse/learn_parse` 模式处理文件
-- `process_line(...)` / `process_lines(...)`：逐行或流式处理
-- `save_template_cache(...)` / `load_template_cache(...)`：模板缓存读写
-- `set_template_variable_name(cluster_id, var_index, var_name)`：为模板变量设置/清空名称（`var_name=None` 或空串表示清空）
-- `set_template_variable_names(cluster_id, variable_names)`：批量更新变量名称，支持部分命名
-- `get_template_variable_names(cluster_id)`：获取模板当前已命名变量
+- `process_log(...)` / `process_line(...)`：处理一条完整逻辑日志，不负责物理行缓冲。
+- `process_lines(...)` / `run_file(...)`：接收物理行，按配置组装后处理；每次调用使用独立组装器。
+- `LogRecordAssembler.feed(...)` / `flush()`：支持调用方管理的跨批次流式组装。
+- `save_template_cache(...)` / `load_template_cache(...)`：模板缓存读写。
+- `validate_config_path(...)` / `validate_header_extraction(...)`：校验配置样本。multiline 样本可以包含换行，首个物理行必须是 Header。
+- `set_template_variable_name(s)(...)` / `get_template_variable_names(...)`：管理模板变量名。
 
-额外配置校验 API：
-
-- `PinXieEngine.validate_config_path(config_path, samples)`：给定样本日志列表，校验 header 结构提取是否对全部样本成功
-- `PinXieEngine.validate_header_extraction(config, samples)`：对已解析配置执行同样校验
-
-说明：仅当 `parse_structure` 中包含 `<context>` 之外的 header 字段时才会执行该校验；如果配置为纯 `<context>`，会直接返回通过。
-
-校验结果返回 `ConfigValidationReport`，包含：
-
-- `requires_header_validation`：是否真的执行了 header 校验
-- `total_samples` / `successful_samples`：样本总数与通过数
-- `failures`：失败项列表；每项包含 `index`、`sample`、`stage`、`reason`、`message`，以及按需返回的 `field` / `pattern` / `structure_part`
-
-失败报告只保留每条样本的首个问题点，并在 `message` 中附带 `trace` 轨迹，方便调用方自行调整 `parse_structure` 或 `field_patterns`。
+`read_toml_config`、`parse_config_data` 和 `from_config_data` 分别用于读取、解析和直接以 TOML 字典初始化配置。
 
 ## 配置说明（TOML）
 
+### `[input]`
+
+`mode` 是必填项，只接受 `single` 或 `multiline`，不会根据 Header 自动推断：
+
+```toml
+[input]
+mode = 'single'
+```
+
+- `single`：每个非空物理行是一条逻辑日志，允许 `parse_structure = '<context>'`；纯空白行跳过。
+- `multiline`：Header 行开始新日志，后续非 Header 行（包括空行和缩进行）原样并入正文，直到下一个 Header 或 EOF。第一条 Header 前的任何物理行都会报带行号的组装错误。
+
 ### `[spell]`
 
-- `tau_ratio`：LCS 匹配阈值比例，默认 `0.5`（即 `tau = max(1, int(token_count * tau_ratio))`）
+- `tau_ratio`：LCS 匹配阈值比例，默认 `0.5`（即 `tau = max(1, int(token_count * tau_ratio))`）。
 
 ### `[tokenizer]`
 
-- `delimiters`：基础分隔符正则
-- `extra_delimiters`：额外分隔符规则
-- `use_jieba`：是否启用中文分词
-- `mask_patterns`：优先保留的模式（如时间/IP），避免被切碎
+- `delimiters`：基础分隔符正则。
+- `extra_delimiters`：额外分隔符规则。
+- `use_jieba`：是否启用中文分词。
+- `mask_patterns`：优先保留的模式（如时间/IP），避免被切碎。
 
 ### `[header]`
 
-- `parse_structure`：头部解析结构，必须包含 `<context>`
-- `strict_mode`：不匹配时是否报错
-- `[header.field_patterns]`：每个占位符对应的正则
+- `parse_structure`：必须显式配置且恰好包含一个 `<context>`。
+- `strict_mode`：直接解析完整逻辑日志时，不匹配是否报错；不影响 multiline 的边界识别。
+- `[header.field_patterns]`：每个非 `context` 占位符对应的有效正则。
 
-示例（三段式日志）：
+multiline 模式还要求 `<context>` 位于结构末尾，且其前存在不能匹配空字符串的可识别 Header。Header 从字符位置 0 开始并按整个物理行匹配；只有配置本身包含或允许空白时才接受空白。
 
 ```toml
+[input]
+mode = 'multiline'
+
 [header]
-parse_structure = '<time>,<entity>,<context>'
-strict_mode = false
+parse_structure = '<time> <level> <context>'
+strict_mode = true
 
 [header.field_patterns]
-time = '\d{4}/\d{1,2}/\d{1,2}\s+(?:[01]?\d|2[0-3]):[0-5]\d'
-entity = '[\p{L}\p{N}_.@-]+'
+time = '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'
+level = 'DEBUG|INFO|WARN|ERROR|FATAL'
 ```
+
+### Header 边界的已知限制
+
+多行边界完全依赖 Header 匹配，不使用缩进、异常栈语法或“疑似 Header”启发式规则。因此：
+
+1. 损坏而无法匹配的 Header 会被当作上一条日志的续行（漏判）；
+2. 正文中完整匹配 Header 格式的行会被当作下一条日志起点（误判）。
+
+本阶段不自动探测模式、不修复损坏 Header，也不支持续行正则或同一文件混合多种 Header。逻辑日志内部换行统一为 `\n`，不保留原始 CRLF/LF 差异。
 
 ## 算法流程
 
@@ -199,15 +222,20 @@ entity = '[\p{L}\p{N}_.@-]+'
 
 ## 结果字段说明（JSONL）
 
-典型字段包括：
+每条逻辑日志对应一行 JSON。典型字段包括：
 
-- `line_id`：日志行号
-- `cluster_id`：模板簇 ID
-- `context`：参与 Spell 聚类的正文
-- `template` / `template_tokens`：当前模板（变量位渲染为 `<VAR:var_0>` 或 `<VAR:变量名>`）
-- `parameters`：按变量位顺序提取的参数列表
-- `named_parameters`：变量名（未命名回退为 `var_N`）到参数值的映射
-- `header_*`：从 header 解析出的结构化字段（若配置）
+- `line_id` / `end_line_id`：逻辑日志的起始/结束物理行号。
+- `physical_line_count`：覆盖的物理行数，即 `end_line_id - line_id + 1`。
+- `log`：完整逻辑日志；多行内容在 JSON 中以换行转义保存。
+- `cluster_id`：模板簇 ID。
+- `context`：参与 Spell 聚类的正文，可包含换行、空行和缩进。
+- `template` / `template_tokens`：当前模板（变量位渲染为 `<VAR:var_0>` 或 `<VAR:变量名>`）。
+- `parameters` / `named_parameters`：提取的参数及其名称映射。
+- `header_*`：从 Header 解析出的结构化字段（若配置）。
+
+`RunReport.processed_records` 统计交给 Spell 的逻辑日志数；`processed_physical_lines` 统计读取的全部物理行（包括 single 模式跳过的空白行）。
+
+模板缓存当前版本为 2，并保存完整 `[input]` 与 `[header]` 配置。加载时 `mode`、`parse_structure`、`strict_mode` 或 `field_patterns` 任一不一致都会拒绝加载；版本 1 不迁移，需用当前配置重新执行 learn。
 
 ## 致谢与参考文献
 

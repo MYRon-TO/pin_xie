@@ -1,3 +1,6 @@
+[input]
+mode = 'multiline' # Header 行开始一条逻辑日志，后续非 Header 行作为续行
+
 [spell]
 tau_ratio = 0.75
 
