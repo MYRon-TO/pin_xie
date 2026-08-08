@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 
 import regex
-
 
 CONTEXT_ONLY_STRUCTURE = "<context>"
 PLACEHOLDER_RE = regex.compile(r"<([A-Za-z_][A-Za-z0-9_]*)>")
@@ -55,13 +54,20 @@ class RegexHeaderParser:
         field_patterns: dict[str, str] | None = None,
         strict_mode: bool = False,
     ) -> None:
-        if "<context>" not in parse_structure:
+        context_count = parse_structure.count("<context>")
+        if context_count != 1:
+            reason = (
+                "parse_structure_missing_context"
+                if context_count == 0
+                else "parse_structure_duplicate_placeholder"
+            )
+            message = (
+                "header.parse_structure must contain '<context>'"
+                if context_count == 0
+                else "Duplicate placeholder in header.parse_structure: <context>"
+            )
             raise HeaderConfigurationError(
-                HeaderValidationIssue(
-                    stage="config",
-                    reason="parse_structure_missing_context",
-                    message="header.parse_structure must contain '<context>'",
-                )
+                HeaderValidationIssue(stage="config", reason=reason, message=message)
             )
 
         self.parse_structure = parse_structure
@@ -75,9 +81,23 @@ class RegexHeaderParser:
             parse_structure=parse_structure,
             field_patterns=self.field_patterns,
         )
-        self.header_re = self._compile_structure(
+        self.header_line_re = self._compile_structure(
             parse_structure=parse_structure,
             field_patterns=self.field_patterns,
+            multiline_context=False,
+        )
+        self.logical_log_re = self._compile_structure(
+            parse_structure=parse_structure,
+            field_patterns=self.field_patterns,
+            multiline_context=True,
+        )
+        # Compatibility alias for callers that inspected the old compiled regex.
+        self.header_re = self.logical_log_re
+
+        context_start = parse_structure.index("<context>")
+        prefix_structure = parse_structure[:context_start]
+        self.header_prefix_re = self._compile_prefix(
+            prefix_structure, self.field_patterns
         )
 
     @staticmethod
@@ -91,7 +111,7 @@ class RegexHeaderParser:
             if literal[idx].isspace():
                 while idx < len(literal) and literal[idx].isspace():
                     idx += 1
-                out.append(r"\s*")
+                out.append(r"[^\S\r\n]+")
             else:
                 out.append(regex.escape(literal[idx]))
                 idx += 1
@@ -218,8 +238,10 @@ class RegexHeaderParser:
         cls,
         parse_structure: str,
         field_patterns: dict[str, str],
+        *,
+        multiline_context: bool,
     ) -> regex.Pattern[str]:
-        regex_parts: list[str] = [r"^\s*"]
+        regex_parts: list[str] = [r"\A"]
         cursor = 0
 
         for match in PLACEHOLDER_RE.finditer(parse_structure):
@@ -230,7 +252,7 @@ class RegexHeaderParser:
             field_pattern = field_patterns.get(field_name)
             if not field_pattern:
                 if field_name == "context":
-                    field_pattern = r".*"
+                    field_pattern = r"[\s\S]*" if multiline_context else r"[^\r\n]*"
                 else:
                     raise HeaderConfigurationError(
                         HeaderValidationIssue(
@@ -248,7 +270,7 @@ class RegexHeaderParser:
             cursor = match.end()
 
         regex_parts.append(cls._literal_to_regex(parse_structure[cursor:]))
-        regex_parts.append(r"\s*$")
+        regex_parts.append(r"\Z")
 
         try:
             return regex.compile("".join(regex_parts))
@@ -262,6 +284,52 @@ class RegexHeaderParser:
                     ),
                 )
             ) from exc
+
+    @classmethod
+    def _compile_prefix(
+        cls, prefix_structure: str, field_patterns: dict[str, str]
+    ) -> regex.Pattern[str]:
+        parts = [r"\A"]
+        cursor = 0
+        for match in PLACEHOLDER_RE.finditer(prefix_structure):
+            parts.append(cls._literal_to_regex(prefix_structure[cursor : match.start()]))
+            field_name = match.group(1)
+            field_pattern = field_patterns.get(field_name)
+            if not field_pattern:
+                raise HeaderConfigurationError(
+                    HeaderValidationIssue(
+                        stage="config",
+                        reason="field_pattern_missing",
+                        message=(
+                            "Missing regex pattern for placeholder "
+                            f"<{field_name}> in header.field_patterns"
+                        ),
+                        field=field_name,
+                    )
+                )
+            parts.append(f"(?:{field_pattern})")
+            cursor = match.end()
+        parts.append(cls._literal_to_regex(prefix_structure[cursor:]))
+        try:
+            return regex.compile("".join(parts))
+        except regex.error as exc:
+            raise HeaderConfigurationError(
+                HeaderValidationIssue(
+                    stage="config",
+                    reason="parse_structure_invalid_regex",
+                    message=f"Invalid header prefix regex composition: {exc}",
+                )
+            ) from exc
+
+    @property
+    def header_prefix_matches_empty(self) -> bool:
+        match = self.header_prefix_re.match("")
+        return match is not None and match.end() == 0
+
+    def is_header_line(self, line: str) -> bool:
+        if "\r" in line or "\n" in line:
+            return False
+        return self.header_line_re.fullmatch(line) is not None
 
     def _structure_part(self, failure: _FailurePoint) -> str:
         if failure.kind == "end":
@@ -298,7 +366,7 @@ class RegexHeaderParser:
     def _structure_match(
         self, sample: str
     ) -> tuple[dict[str, str], _FailurePoint | None]:
-        @lru_cache(maxsize=None)
+        @cache
         def can_match(node_index: int, pos: int) -> bool:
             if node_index == len(self.nodes):
                 return pos == len(sample)
@@ -316,7 +384,7 @@ class RegexHeaderParser:
 
             return False
 
-        @lru_cache(maxsize=None)
+        @cache
         def first_failure(node_index: int, pos: int) -> _FailurePoint | None:
             if node_index == len(self.nodes):
                 if pos == len(sample):
@@ -561,7 +629,7 @@ class RegexHeaderParser:
         return None
 
     def parse(self, log: str) -> HeaderParseResult:
-        match = self.header_re.match(log)
+        match = self.logical_log_re.fullmatch(log)
         if match is None:
             if self.strict_mode:
                 raise ValueError(

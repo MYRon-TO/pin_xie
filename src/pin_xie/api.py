@@ -10,6 +10,7 @@ from typing import Any
 from .cluster import LCSObject
 from .config import (
     DemoConfig,
+    InputMode,
     load_demo_config,
     parse_demo_config,
     read_toml_config,
@@ -23,7 +24,6 @@ from .header import (
 from .parser import SpellParser
 from .template import build_named_parameters, render_template_tokens
 from .tokenizer import LogTokenizer
-
 
 TEMPLATE_CACHE_FILE = "templates.json"
 
@@ -63,7 +63,7 @@ class ConfigValidationReport:
     requires_header_validation: bool
     total_samples: int
     successful_samples: int
-    failures: list["FailureItem"]
+    failures: list[FailureItem]
 
     @property
     def all_samples_valid(self) -> bool:
@@ -100,18 +100,25 @@ class PinXieEngine:
         self.parser = self._create_spell_parser()
 
     @classmethod
-    def from_config_path(cls, config_path: Path | str) -> "PinXieEngine":
+    def from_config_path(cls, config_path: Path | str) -> PinXieEngine:
         config = load_demo_config(Path(config_path))
         return cls(config)
 
     @classmethod
-    def from_config_data(cls, data: Mapping[str, Any]) -> "PinXieEngine":
+    def from_config_data(cls, data: Mapping[str, Any]) -> PinXieEngine:
         config = parse_demo_config(data)
         return cls(config)
 
     @staticmethod
     def _normalize_samples(samples: Iterable[str]) -> list[str]:
-        return [sample.strip() for sample in samples if sample.strip()]
+        normalized: list[str] = []
+        for sample in samples:
+            if sample.endswith("\r\n"):
+                sample = sample[:-2]
+            elif sample.endswith(("\n", "\r")):
+                sample = sample[:-1]
+            normalized.append(sample)
+        return normalized
 
     @staticmethod
     def _build_failure_item(
@@ -155,7 +162,7 @@ class PinXieEngine:
         return parse_demo_config(data)
 
     @classmethod
-    def from_demo_config(cls, config: DemoConfig) -> "PinXieEngine":
+    def from_demo_config(cls, config: DemoConfig) -> PinXieEngine:
         return cls(config)
 
     @staticmethod
@@ -186,7 +193,11 @@ class PinXieEngine:
             for char in parser.parse_structure.replace(CONTEXT_ONLY_STRUCTURE, "")
         )
 
-        if not non_context_fields and not has_literal_constraints:
+        if (
+            config.input.mode is InputMode.SINGLE
+            and not non_context_fields
+            and not has_literal_constraints
+        ):
             return ConfigValidationReport(
                 requires_header_validation=False,
                 total_samples=len(normalized_samples),
@@ -198,7 +209,17 @@ class PinXieEngine:
         success_count = 0
 
         for sample_index, sample in enumerate(normalized_samples, start=1):
-            issue = parser.validate_sample(sample)
+            issue: HeaderValidationIssue | None = None
+            if config.input.mode is InputMode.MULTILINE:
+                first_line = sample.split("\n", 1)[0].removesuffix("\r")
+                if not parser.is_header_line(first_line):
+                    issue = HeaderValidationIssue(
+                        stage="sample",
+                        reason="sample_first_line_not_header",
+                        message="Sample first physical line does not match the configured header",
+                    )
+            if issue is None:
+                issue = parser.validate_sample(sample)
             if issue is None:
                 success_count += 1
                 continue
@@ -464,7 +485,9 @@ class PinXieEngine:
             state = json.load(fp)
 
         if not isinstance(state, dict):
-            raise ValueError("Invalid template cache: root must be an object")
+            raise ValueError(  # noqa: TRY004 - public cache API uses ValueError
+                "Invalid template cache: root must be an object"
+            )
 
         self.parser = SpellParser.from_template_state(
             state,

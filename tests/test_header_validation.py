@@ -3,6 +3,8 @@ from __future__ import annotations
 from pin_xie import (
     DemoConfig,
     HeaderConfig,
+    InputConfig,
+    InputMode,
     OutputConfig,
     PinXieEngine,
     SpellConfig,
@@ -10,8 +12,14 @@ from pin_xie import (
 )
 
 
-def build_config(*, parse_structure: str, field_patterns: dict[str, str]) -> DemoConfig:
+def build_config(
+    *,
+    parse_structure: str,
+    field_patterns: dict[str, str],
+    mode: InputMode = InputMode.SINGLE,
+) -> DemoConfig:
     return DemoConfig(
+        input=InputConfig(mode=mode),
         spell=SpellConfig(),
         tokenizer=TokenizerConfig(),
         header=HeaderConfig(
@@ -114,6 +122,9 @@ def test_validate_config_path_reports_missing_context(tmp_path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
+[input]
+mode = 'single'
+
 [header]
 parse_structure = '<ts> <message>'
 
@@ -165,3 +176,89 @@ def test_validate_header_extraction_validates_literal_prefixed_context() -> None
     assert failure.sample == "wrong"
     assert failure.reason == "parse_structure_mismatch"
     assert failure.structure_part == "start"
+
+
+def test_parse_config_requires_input_and_header_tables() -> None:
+    import pytest
+
+    with pytest.raises(TypeError, match="input must be a TOML table"):
+        PinXieEngine.parse_config_data({"header": {"parse_structure": "<context>"}})
+    with pytest.raises(TypeError, match="header must be a TOML table"):
+        PinXieEngine.parse_config_data({"input": {"mode": "single"}})
+
+
+def test_parse_config_rejects_invalid_input_modes() -> None:
+    import pytest
+
+    base = {"header": {"parse_structure": "<context>"}}
+    with pytest.raises(ValueError, match="input.mode is required"):
+        PinXieEngine.parse_config_data({"input": {}, **base})
+    with pytest.raises(ValueError, match="input.mode must be"):
+        PinXieEngine.parse_config_data({"input": {"mode": "automatic"}, **base})
+
+
+def test_multiline_config_constraints() -> None:
+    import pytest
+
+    def parse(structure: str, patterns: dict[str, str] | None = None) -> None:
+        PinXieEngine.parse_config_data(
+            {
+                "input": {"mode": "multiline"},
+                "header": {
+                    "parse_structure": structure,
+                    "field_patterns": patterns or {},
+                },
+            }
+        )
+
+    with pytest.raises(ValueError, match="multiline_header_missing"):
+        parse("<context>")
+    with pytest.raises(ValueError, match="multiline_context_not_last"):
+        parse("<context> suffix")
+    with pytest.raises(ValueError, match="multiline_context_not_last"):
+        parse("<context> <level>", {"level": "INFO"})
+    with pytest.raises(ValueError, match="multiline_header_matches_empty"):
+        parse("<level><context>", {"level": ".*"})
+
+    parse("LOG <context>")
+    parse("<level> <context>", {"level": "INFO|ERROR"})
+
+
+def test_header_line_is_anchored_and_parse_supports_multiline_context() -> None:
+    from pin_xie import RegexHeaderParser
+
+    parser = RegexHeaderParser(
+        "<level> <context>", {"level": "INFO|ERROR"}, strict_mode=True
+    )
+    assert parser.is_header_line("INFO started") is True
+    assert parser.is_header_line(" INFO started") is False
+    assert parser.is_header_line("WARN started") is False
+    assert parser.is_header_line("INFO first\ncontinued") is False
+
+    result = parser.parse("ERROR failed\n  traceback\n")
+    assert result.matched is True
+    assert result.context == "failed\n  traceback"
+
+
+def test_explicit_leading_space_and_header_only_line() -> None:
+    from pin_xie import RegexHeaderParser
+
+    parser = RegexHeaderParser(" <level> <context>", {"level": "INFO"})
+    assert parser.is_header_line(" INFO ") is True
+    assert parser.is_header_line("INFO ") is False
+    assert parser.parse(" INFO ").context == ""
+
+
+def test_multiline_sample_requires_header_and_preserves_leading_whitespace() -> None:
+    config = build_config(
+        mode=InputMode.MULTILINE,
+        parse_structure="<level> <context>",
+        field_patterns={"level": "INFO"},
+    )
+    report = PinXieEngine.validate_header_extraction(
+        config, [" INFO bad\ncontinuation\n", "INFO good\n  continuation\n"]
+    )
+    assert report.total_samples == 2
+    assert report.successful_samples == 1
+    assert report.failures[0].reason == "sample_first_line_not_header"
+    assert report.failures[0].sample.startswith(" INFO")

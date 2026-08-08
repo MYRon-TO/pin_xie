@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
-import tomllib
 
-from .header import CONTEXT_ONLY_STRUCTURE
+from .header import HeaderConfigurationError, RegexHeaderParser
 from .tokenizer import DEFAULT_DELIMITERS
 
+
+class InputMode(str, Enum):
+    SINGLE = "single"
+    MULTILINE = "multiline"
+
+
+@dataclass(frozen=True)
+class InputConfig:
+    mode: InputMode
 
 @dataclass
 class SpellConfig:
@@ -25,7 +35,7 @@ class TokenizerConfig:
 
 @dataclass
 class HeaderConfig:
-    parse_structure: str = CONTEXT_ONLY_STRUCTURE
+    parse_structure: str
     strict_mode: bool = False
     field_patterns: dict[str, str] = field(default_factory=dict)
 
@@ -40,6 +50,7 @@ class OutputConfig:
 
 @dataclass
 class DemoConfig:
+    input: InputConfig
     spell: SpellConfig
     tokenizer: TokenizerConfig
     header: HeaderConfig
@@ -56,21 +67,33 @@ def read_toml_config(config_path: Path) -> dict[str, Any]:
 
 def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
     if not isinstance(data, Mapping):
-        raise ValueError("Config root must be a TOML table")
+        raise TypeError("Config root must be a TOML table")
 
+    input_data = data.get("input")
     spell_data = data.get("spell", {})
     tokenizer_data = data.get("tokenizer", {})
-    header_data = data.get("header", {})
+    header_data = data.get("header")
     output_data = data.get("output", {})
 
+    if not isinstance(input_data, Mapping):
+        raise TypeError("input must be a TOML table")
+    if "mode" not in input_data:
+        raise ValueError("input.mode is required")
+    raw_mode = input_data["mode"]
+    if not isinstance(raw_mode, str):
+        raise TypeError("input.mode must be 'single' or 'multiline'")
+    try:
+        input_config = InputConfig(mode=InputMode(raw_mode))
+    except ValueError as exc:
+        raise ValueError("input.mode must be 'single' or 'multiline'") from exc
     if not isinstance(spell_data, Mapping):
-        raise ValueError("spell must be a TOML table")
+        raise TypeError("spell must be a TOML table")
     if not isinstance(tokenizer_data, Mapping):
-        raise ValueError("tokenizer must be a TOML table")
+        raise TypeError("tokenizer must be a TOML table")
     if not isinstance(header_data, Mapping):
-        raise ValueError("header must be a TOML table")
+        raise TypeError("header must be a TOML table")
     if not isinstance(output_data, Mapping):
-        raise ValueError("output must be a TOML table")
+        raise TypeError("output must be a TOML table")
 
     spell = SpellConfig(
         tau_ratio=float(spell_data.get("tau_ratio", 0.5)),
@@ -87,19 +110,41 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         use_jieba=bool(tokenizer_data.get("use_jieba", True)),
     )
 
-    parse_structure = str(header_data.get("parse_structure", CONTEXT_ONLY_STRUCTURE))
-    if "<context>" not in parse_structure:
-        raise ValueError("header.parse_structure must contain '<context>'")
+    if "parse_structure" not in header_data:
+        raise ValueError("header.parse_structure is required")
+    parse_structure = header_data["parse_structure"]
+    if not isinstance(parse_structure, str):
+        raise TypeError("header.parse_structure must be a string")
 
     raw_field_patterns = header_data.get("field_patterns", {})
     if not isinstance(raw_field_patterns, Mapping):
-        raise ValueError("header.field_patterns must be a TOML table")
+        raise TypeError("header.field_patterns must be a TOML table")
 
-    field_patterns: dict[str, str] = {
-        str(key): str(value)
-        for key, value in raw_field_patterns.items()
-        if value is not None and str(value) != ""
-    }
+    field_patterns: dict[str, str] = {}
+    for key, value in raw_field_patterns.items():
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"header.field_patterns.{key} must be a non-empty regex")
+        field_patterns[str(key)] = value
+
+    try:
+        header_parser = RegexHeaderParser(
+            parse_structure=parse_structure,
+            field_patterns=field_patterns,
+            strict_mode=bool(header_data.get("strict_mode", False)),
+        )
+    except HeaderConfigurationError as exc:
+        raise ValueError(str(exc)) from exc
+
+    if input_config.mode is InputMode.MULTILINE:
+        context_start = parse_structure.index("<context>")
+        prefix = parse_structure[:context_start]
+        suffix = parse_structure[context_start + len("<context>") :]
+        if suffix.strip():
+            raise ValueError("multiline_context_not_last")
+        if not prefix:
+            raise ValueError("multiline_header_missing")
+        if header_parser.header_prefix_matches_empty:
+            raise ValueError("multiline_header_matches_empty")
 
     header = HeaderConfig(
         parse_structure=parse_structure,
@@ -115,6 +160,7 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
     )
 
     return DemoConfig(
+        input=input_config,
         spell=spell,
         tokenizer=tokenizer,
         header=header,
