@@ -90,21 +90,21 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --config config/Config.t
 
 支持三种模式：
 
-- `learn_parse`（默认）：边学习边解析（保留原有行为），同时写出解析结果和模板摘要。
-- `learn`：只学习模板，不写解析输出；模板会保存到 `--template-dir`（默认 `./cache/`）。
-- `parse`：只解析，不更新模板；会从 `--template-dir` 读取模板缓存。
+- `learn_parse`（默认）：边学习边解析，同时写出解析结果和模板摘要。若 `--template-dir` 中已有模板缓存，则先加载并增量更新。
+- `learn`：只学习模板，不写解析输出。若 `--template-dir` 中已有模板缓存，则先加载并增量更新；否则从空模板开始。
+- `parse`：只解析，不更新模板；要求 `--template-dir` 中存在模板缓存。
 
 示例：
 
 ```bash
-# 1) 仅学习模板（不输出 parsed_results/templates.txt）
+# 1) 仅学习模板；缓存不存在时创建，存在时增量更新
 PYTHONPATH=src python -m pin_xie.demo /path/to/train.log --mode learn --template-dir ./cache
 
 # 2) 仅解析（使用已有模板，不更新）
 PYTHONPATH=src python -m pin_xie.demo /path/to/infer.log --mode parse --template-dir ./cache
 
-# 3) 维持原有模式（学习 + 解析）
-PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse
+# 3) 学习并解析；缓存存在时在已有模板基础上更新
+PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse --template-dir ./cache
 ```
 
 3) 查看输出
@@ -112,7 +112,7 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse
 - 逐行解析结果：`output/parsed_results.jsonl`
 - 模板聚类结果：`output/templates.txt`
 - 模板缓存（JSON）：`cache/templates.json`（目录可由 `--template-dir` 指定）
-- 模式差异：`learn` 仅写缓存；`parse` 仅写解析结果；`learn_parse` 同时写解析结果、模板摘要和缓存
+- 模式差异：`learn` 读取可选缓存并只写更新后的缓存；`parse` 读取必需缓存并只写解析结果；`learn_parse` 读取可选缓存，并写解析结果、模板摘要和更新后的缓存
 
 ## 作为库使用
 
@@ -124,6 +124,7 @@ from pin_xie import LogRecordAssembler, PinXieEngine, RunMode
 engine = PinXieEngine.from_config_path("config/Config.dynamic_example.toml")
 
 # 文件 API 接收物理行，并按 input.mode 组装逻辑日志。
+# LEARN 和 LEARN_PARSE 会在缓存存在时先加载，再增量更新。
 report = engine.run_file("/path/to/train.log", mode=RunMode.LEARN, template_dir="cache")
 print(report.processed_records, report.processed_physical_lines)
 

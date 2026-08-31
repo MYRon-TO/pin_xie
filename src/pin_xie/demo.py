@@ -31,7 +31,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--template-dir",
         type=Path,
         default=Path("cache"),
-        help="Directory for template cache storage (default: ./cache)",
+        help=(
+            "Directory for template cache storage (default: ./cache). "
+            "learn and learn_parse update an existing cache when present; "
+            "parse requires an existing cache."
+        ),
     )
     return parser
 

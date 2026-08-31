@@ -136,6 +136,29 @@ def test_run_file_counts_skipped_single_mode_blank_lines(tmp_path: Path) -> None
     assert sum(cluster.size for cluster in engine.parser.all_clusters()) == 2
 
 
+@pytest.mark.parametrize("mode", [RunMode.LEARN, RunMode.LEARN_PARSE])
+def test_learning_modes_update_existing_template_cache(
+    tmp_path: Path, mode: RunMode
+) -> None:
+    config = build_config(tmp_path, InputMode.SINGLE)
+    cache_dir = tmp_path / "cache"
+    first_log = tmp_path / "first.log"
+    second_log = tmp_path / "second.log"
+    first_log.write_text("alpha\n", encoding="utf-8")
+    second_log.write_text("beta gamma delta\n", encoding="utf-8")
+
+    PinXieEngine(config).run_file(
+        first_log, mode=RunMode.LEARN, template_dir=cache_dir
+    )
+    updated = PinXieEngine(config)
+    updated.run_file(second_log, mode=mode, template_dir=cache_dir)
+
+    assert len(updated.parser.all_clusters()) == 2
+    reloaded = PinXieEngine(config)
+    reloaded.load_template_cache(cache_dir)
+    assert len(reloaded.parser.all_clusters()) == 2
+
+
 def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> None:
     config = build_config(tmp_path, InputMode.MULTILINE)
     engine = PinXieEngine(config)

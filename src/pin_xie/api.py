@@ -391,8 +391,9 @@ class PinXieEngine:
 
         template_dir_path = Path(template_dir)
 
-        if selected_mode is RunMode.PARSE:
-            self.load_template_cache(template_dir_path)
+        cache_path = self.template_cache_path(template_dir_path)
+        if selected_mode is RunMode.PARSE or cache_path.is_file():
+            _ = self.load_template_cache(template_dir_path)
         else:
             self.reset_model()
 
