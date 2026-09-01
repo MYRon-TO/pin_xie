@@ -4,17 +4,18 @@ import math
 from dataclasses import dataclass, field
 
 from .cluster import LCSObject
+from .models import InputToken, input_token_text, template_literal_text
 
 
 @dataclass(eq=False)
 class TrieNode:
-    children: dict[str, "TrieNode"] = field(default_factory=dict)
+    children: dict[str, TrieNode] = field(default_factory=dict)
     terminal_cluster_ids: set[int] = field(default_factory=set)
 
 
 class PrefixTree:
     def __init__(self) -> None:
-        self.root = TrieNode()
+        self.root: TrieNode = TrieNode()
 
     def clear(self) -> None:
         self.root = TrieNode()
@@ -26,7 +27,9 @@ class PrefixTree:
 
     def insert(self, cluster: LCSObject) -> None:
         constant_tokens = [
-            token for token in cluster.template_tokens if token is not None
+            text
+            for token in cluster.template_tokens
+            if (text := template_literal_text(token)) is not None
         ]
         if not constant_tokens:
             return
@@ -43,7 +46,7 @@ class PrefixTree:
 
     def match(
         self,
-        tokens: list[str],
+        tokens: list[InputToken],
         clusters_by_id: dict[int, LCSObject],
         min_match_ratio: float = 0.5,
     ) -> int | None:
@@ -52,9 +55,10 @@ class PrefixTree:
 
         states: set[TrieNode] = {self.root}
         for token in tokens:
+            token_text = input_token_text(token)
             next_states = set(states)
             for state in states:
-                child = state.children.get(token)
+                child = state.children.get(token_text)
                 if child is not None:
                     next_states.add(child)
             states = next_states
@@ -93,7 +97,7 @@ class PrefixTree:
 
 
 def trie_match(
-    tokens: list[str],
+    tokens: list[InputToken],
     trie: PrefixTree,
     clusters_by_id: dict[int, LCSObject],
     min_match_ratio: float = 0.5,

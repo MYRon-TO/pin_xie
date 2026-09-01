@@ -119,7 +119,11 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse --tem
 可以直接使用 `PinXieEngine`，不依赖 CLI：
 
 ```python
-from pin_xie import LogRecordAssembler, PinXieEngine, RunMode
+from pin_xie import (
+    InputToken, LiteralTemplateToken, LogRecordAssembler, MaskPattern,
+    ParameterCapture, PinXieEngine, PlainTokenSource, RegexTokenSource,
+    RunMode, VariableTemplateToken,
+)
 
 engine = PinXieEngine.from_config_path("config/Config.dynamic_example.toml")
 
@@ -149,7 +153,7 @@ assembler = LogRecordAssembler(engine.config.input.mode, engine.header_parser)
 - `LogRecordAssembler.feed(...)` / `flush()`：支持调用方管理的跨批次流式组装。
 - `save_template_cache(...)` / `load_template_cache(...)`：模板缓存读写。
 - `validate_config_path(...)` / `validate_header_extraction(...)`：校验配置样本。multiline 样本可以包含换行，首个物理行必须是 Header。
-- `set_template_variable_name(s)(...)` / `get_template_variable_names(...)`：管理模板变量名。
+- `set_template_variable_name(s)(...)` / `get_template_variable_names(...)`：管理模板变量名；名称直接存储在对应的 `VariableTemplateToken.var_name` 中，缓存不使用独立名称映射。
 
 `read_toml_config`、`parse_config_data` 和 `from_config_data` 分别用于读取、解析和直接以 TOML 字典初始化配置。
 
@@ -190,7 +194,17 @@ random_seed = 42
 - `delimiters`：基础分隔符正则。
 - `extra_delimiters`：额外分隔符规则。
 - `use_jieba`：是否启用中文分词。
-- `mask_patterns`：优先保留的模式（如时间/IP），避免被切碎。
+- `mask_patterns`：具名规则表数组；规则按配置顺序尝试，同一位置可匹配多条规则时前者优先。名称必须非空且唯一，正则必须有效且不能匹配空字符串。
+
+```toml
+[[tokenizer.mask_patterns]]
+name = 'datetime'
+pattern = '\\b\\d{4}/\\d{1,2}/\\d{1,2} [0-2]?\\d:[0-5]\\d\\b'
+
+[[tokenizer.mask_patterns]]
+name = 'ipv4'
+pattern = '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b'
+```
 
 ### `[header]`
 
@@ -237,20 +251,23 @@ level = 'DEBUG|INFO|WARN|ERROR|FATAL'
 
 ## 结果字段说明（JSONL）
 
-每条逻辑日志对应一行 JSON。典型字段包括：
+每条逻辑日志对应一行 JSON。`line_id`、`end_line_id` 和 `physical_line_count` 描述物理行范围；`log` 是完整逻辑日志，`context` 是参与聚类的正文；`cluster_id` 标识模板簇，Header 字段以 `header_<name>` 输出。
 
-- `line_id` / `end_line_id`：逻辑日志的起始/结束物理行号。
-- `physical_line_count`：覆盖的物理行数，即 `end_line_id - line_id + 1`。
-- `log`：完整逻辑日志；多行内容在 JSON 中以换行转义保存。
-- `cluster_id`：模板簇 ID。
-- `context`：参与 Spell 聚类的正文，可包含换行、空行和缩进。
-- `template` / `template_tokens`：当前模板（变量位渲染为 `<VAR:var_0>` 或 `<VAR:变量名>`）。
-- `parameters` / `named_parameters`：提取的参数及其名称映射。
-- `header_*`：从 Header 解析出的结构化字段（若配置）。
+模板和参数采用结构化对象：
+
+```json
+{"template":"connect <VAR:client>","template_tokens":[{"kind":"literal","text":"connect","sources":[{"kind":"plain"}]},{"kind":"variable","var_name":"client","sources":[{"kind":"plain"},{"kind":"regex","mask_name":"ipv4"}]}],"parameters":[{"template_token_index":1,"var_name":"client","value":"10.0.0.8","sources":[{"kind":"regex","mask_name":"ipv4"}]}],"tokens":[{"text":"connect","source":{"kind":"plain"}},{"text":"10.0.0.8","source":{"kind":"regex","mask_name":"ipv4"}}]}
+```
+
+- 输入 Token 是 `InputToken(text, source)`，其中来源为 `PlainTokenSource` 或带 `mask_name` 的 `RegexTokenSource`。
+- 模板 Token 是 `LiteralTemplateToken(text, sources)` 或 `VariableTemplateToken(var_name, sources)`；`sources` 是累计、去重并稳定排序的来源。
+- `ParameterCapture` 包含模板位置、变量名、捕获值及本次输入的来源；参数来源不是模板累计来源。
+- `[output].show_tokens = true` 时输出 `tokens` 对象数组；为 `false` 时完全省略该字段。
+- `templates.txt` 包含渲染模板、变量位置与累计来源，以及 tokenizer 摘要。
 
 `RunReport.processed_records` 统计交给 Spell 的逻辑日志数；`processed_physical_lines` 统计读取的全部物理行（包括 single 模式跳过的空白行）。
 
-模板缓存当前版本为 3，保存完整 `[input]`、`[header]` 配置及 `[learning]` 训练元数据。加载时仅校验影响解析兼容性的 `mode`、`parse_structure`、`strict_mode` 和 `field_patterns`；`shuffle` 与 `random_seed` 不参与兼容性比较。旧版本缓存不迁移，需用当前配置重新执行 learn。
+模板缓存版本为 4，保存 `[input]`、`[header]`、`[learning]` 和完整 `[tokenizer]` 配置。加载兼容性校验 input/header，以及 tokenizer 的 `delimiters`、`extra_delimiters`、具名 mask（含顺序）和 `use_jieba`；learning 元数据只保存、不参与兼容性判断。v1、v2、v3 缓存均严格拒绝，不提供迁移，需以当前配置重新 learn。
 
 ## 致谢与参考文献
 

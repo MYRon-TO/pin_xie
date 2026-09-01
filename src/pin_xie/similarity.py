@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .cluster import LCSObject
+from .models import InputToken, input_token_text
 
 
 def jaccard_similarity(a: set[str], b: set[str]) -> float:
@@ -11,11 +12,13 @@ def jaccard_similarity(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def jaccard_filter(tokens: list[str], clusters: list[LCSObject]) -> list[LCSObject]:
+def jaccard_filter(
+    tokens: list[InputToken], clusters: list[LCSObject]
+) -> list[LCSObject]:
     if not tokens or not clusters:
         return []
 
-    token_set = set(tokens)
+    token_set = {input_token_text(token) for token in tokens}
     threshold = len(tokens) / 2
 
     candidates: list[LCSObject] = []

@@ -94,11 +94,11 @@ WU01、WU03、WU02 及 CP1 已验收。实现前确认核心模块中不存在�
 
 ```bash
 ruff check src/pin_xie/parser.py src/pin_xie/api.py tests/test_template_cache_v4.py
-basedpyright src/pin_xie/parser.py src/pin_xie/api.py
+basedpyright src/pin_xie/parser.py
 pytest -q tests/test_template_cache_v4.py
 ```
 
-WU04 完成后生产主流程应重新一致，但 `test_multiline_engine.py` 仍含 v3 断言，可能导致全量测试失败。不要在本 WU 修改该文件；WU06 统一迁移旧集成断言。
+WU04 完成后 Parser 与缓存主流程应重新一致。`api.py` 的缓存调用可由聚焦测试覆盖，但其旧输出、`variable_names`、`ParsedRecord` 类型要到 WU05 才适配，因此本 WU 不以整文件 basedpyright 为验收条件；WU05 必须恢复 `api.py` 类型检查。`test_multiline_engine.py` 仍含 v3 和旧输出断言，可能失败，不要在本 WU 修改该文件；WU06 统一迁移其余集成断言。
 
 ## 8. 验收标准
 

@@ -1,8 +1,11 @@
+# pyright: standard
+
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
 from pathlib import Path
+
 import pytest
 
 from pin_xie import (
@@ -238,7 +241,7 @@ def test_parse_ignores_learning_shuffle_and_cache_does_not_compare_it(
     assert [payload["log"] for payload in payloads] == ["alpha", "beta gamma"]
 
 
-def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> None:
+def test_template_cache_v4_saves_and_loads_complete_config(tmp_path: Path) -> None:
     config = build_config(tmp_path, InputMode.MULTILINE)
     engine = PinXieEngine(config)
     engine.process_log("2026-03-20 ERROR failed", line_id=1)
@@ -247,7 +250,7 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
     cache_path = engine.save_template_cache(cache_dir)
     state = json.loads(cache_path.read_text(encoding="utf-8"))
 
-    assert state["version"] == 3
+    assert state["version"] == 4
     assert state["input"] == {"mode": "multiline"}
     assert state["header"] == {
         "parse_structure": "<time> <level> <context>",
@@ -258,6 +261,12 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
         },
     }
     assert state["learning"] == {"shuffle": False, "random_seed": None}
+    assert state["tokenizer"] == {
+        "delimiters": config.tokenizer.delimiters,
+        "extra_delimiters": [],
+        "mask_patterns": [],
+        "use_jieba": False,
+    }
     loaded = PinXieEngine(config)
     loaded.load_template_cache(cache_dir)
     assert len(loaded.parser.all_clusters()) == 1
@@ -276,6 +285,18 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
             lambda state: state["header"].update(field_patterns={"level": "INFO"}),
             "header.field_patterns",
         ),
+        (lambda state: state["tokenizer"].update(delimiters=r"\\s+"), "tokenizer.delimiters"),
+        (
+            lambda state: state["tokenizer"].update(extra_delimiters=[r"-+"]),
+            "tokenizer.extra_delimiters",
+        ),
+        (
+            lambda state: state["tokenizer"].update(
+                mask_patterns=[{"name": "digits", "pattern": r"\\d+"}]
+            ),
+            "tokenizer.mask_patterns",
+        ),
+        (lambda state: state["tokenizer"].update(use_jieba=True), "tokenizer.use_jieba"),
     ],
 )
 def test_template_cache_rejects_each_config_difference(
@@ -294,17 +315,20 @@ def test_template_cache_rejects_each_config_difference(
     assert engine.parser.all_clusters() == []
 
 
-def test_template_cache_rejects_v1_without_partial_load(tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_template_cache_rejects_old_version_without_partial_load(
+    tmp_path: Path, version: int
+) -> None:
     config = build_config(tmp_path, InputMode.SINGLE)
     engine = PinXieEngine(config)
     original = engine.process_log("existing model", line_id=9).cluster_id
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     (cache_dir / "templates.json").write_text(
-        json.dumps({"version": 1, "clusters": []}), encoding="utf-8"
+        json.dumps({"version": version, "clusters": []}), encoding="utf-8"
     )
 
-    with pytest.raises(ValueError, match=r"version 1.*learn again"):
+    with pytest.raises(ValueError, match=rf"version {version}.*learn again"):
         engine.load_template_cache(cache_dir)
     assert [cluster.cluster_id for cluster in engine.parser.all_clusters()] == [original]
 
@@ -312,15 +336,16 @@ def test_template_cache_rejects_v1_without_partial_load(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "invalid_state",
     [
-        {"version": 3, "input": [], "header": {}, "learning": {}},
+        {"version": 4, "input": [], "header": {}, "learning": {}, "tokenizer": {}},
         {
-            "version": 3,
+            "version": 4,
             "input": {"mode": "single"},
             "header": [],
             "learning": {},
+            "tokenizer": {},
         },
         {
-            "version": 3,
+            "version": 4,
             "input": {"mode": "single"},
             "header": {
                 "parse_structure": "<context>",
@@ -328,6 +353,7 @@ def test_template_cache_rejects_v1_without_partial_load(tmp_path: Path) -> None:
                 "field_patterns": {},
             },
             "learning": [],
+            "tokenizer": {},
         },
     ],
 )

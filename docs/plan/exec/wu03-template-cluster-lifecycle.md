@@ -86,7 +86,7 @@ WU01 已验收。本 WU 在 WU02 之前执行，只依赖 `models.py` 和现有 
 - `value` 使用捕获输入 Token 的文本以空格连接；
 - `sources` 只来自本次捕获输入 Token，并稳定去重，不能使用模板累计来源。
 
-渲染函数直接读取对象模板。删除 `variable_label()` 和 `build_named_parameters()` 等基于外部映射的逻辑。
+渲染函数直接读取对象模板。删除 `variable_label()` 等基于外部映射的模板逻辑。由于包导入链中的 `api.py` 要到 WU05 才删除 `named_parameters`，本 WU 暂时保留现有 `build_named_parameters()` 作为明确的中间态边界，仅用于避免聚焦测试收集失败；不得扩展或适配该函数，WU05 必须连同 API 调用一起删除。
 
 ## 6. 测试要求
 

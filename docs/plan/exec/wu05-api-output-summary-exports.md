@@ -23,6 +23,7 @@ WU04 已验收，Parser 和缓存 v4 接口已稳定。
 
 - `src/pin_xie/api.py`
 - `src/pin_xie/__init__.py`
+- `src/pin_xie/template.py`（仅删除 WU03 临时保留的 `build_named_parameters()`）
 
 ### 新增或更新
 
@@ -111,11 +112,11 @@ WU04 已验收，Parser 和缓存 v4 接口已稳定。
 ```bash
 ruff check src/pin_xie/api.py src/pin_xie/__init__.py tests/test_rich_output.py
 basedpyright src/pin_xie/api.py src/pin_xie/__init__.py
-pytest -q tests/test_rich_output.py tests/test_multiline_engine.py
+pytest -q tests/test_rich_output.py
 ```
 
 现有 `test_multiline_engine.py` 若仍断言旧输出，可在本 WU 做最小必要更新，并把完整集成扩展留给 WU06。
-WU04 后仍可能存在缓存 v3 的旧集成断言。本 WU 只更新因输出/API 改造而直接阻塞其聚焦验证的断言；其余缓存版本与完整集成迁移由 WU06 统一完成。
+WU04 后仍存在缓存 v3 的旧集成断言。本 WU 只更新因输出/API 改造而直接阻塞聚焦验证的断言；`test_multiline_engine.py` 不作为本 WU 验收命令，其缓存版本与完整集成迁移由 WU06 统一完成。主管已诊断联合运行仅有 4 个缓存 v3 旧断言失败。
 
 ## 8. 验收标准
 

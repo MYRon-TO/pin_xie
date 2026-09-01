@@ -5,9 +5,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
+
+import regex
 
 from .header import HeaderConfigurationError, RegexHeaderParser
+from .models import MaskPattern
 from .tokenizer import DEFAULT_DELIMITERS
 
 
@@ -35,7 +38,7 @@ class SpellConfig:
 class TokenizerConfig:
     delimiters: str = DEFAULT_DELIMITERS
     extra_delimiters: tuple[str, ...] = ()
-    mask_patterns: tuple[str, ...] = ()
+    mask_patterns: tuple[MaskPattern, ...] = ()
     use_jieba: bool = True
 
 
@@ -64,17 +67,15 @@ class DemoConfig:
     learning: LearningConfig = field(default_factory=LearningConfig)
 
 
-def read_toml_config(config_path: Path) -> dict[str, Any]:
+def read_toml_config(config_path: Path) -> dict[str, object]:
     if not config_path.exists() or not config_path.is_file():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with config_path.open("rb") as fp:
-        return tomllib.load(fp)
+        return cast(dict[str, object], tomllib.load(fp))
 
 
-def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
-    if not isinstance(data, Mapping):
-        raise TypeError("Config root must be a TOML table")
+def parse_demo_config(data: Mapping[str, object]) -> DemoConfig:
 
     input_data = data.get("input")
     spell_data = data.get("spell", {})
@@ -96,16 +97,19 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         raise ValueError("input.mode must be 'single' or 'multiline'") from exc
     if not isinstance(spell_data, Mapping):
         raise TypeError("spell must be a TOML table")
-    spell_data = cast(Mapping[str, Any], spell_data)
+    spell_data = cast(Mapping[str, object], spell_data)
     if not isinstance(tokenizer_data, Mapping):
         raise TypeError("tokenizer must be a TOML table")
-    tokenizer_data = cast(Mapping[str, Any], tokenizer_data)
+    tokenizer_data = cast(Mapping[str, object], tokenizer_data)
     if not isinstance(header_data, Mapping):
         raise TypeError("header must be a TOML table")
     if not isinstance(output_data, Mapping):
         raise TypeError("output must be a TOML table")
     if not isinstance(learning_data, Mapping):
         raise TypeError("learning must be a TOML table")
+    header_data = cast(Mapping[str, object], header_data)
+    output_data = cast(Mapping[str, object], output_data)
+    learning_data = cast(Mapping[str, object], learning_data)
 
     raw_shuffle = learning_data.get("shuffle", False)
     if not isinstance(raw_shuffle, bool):
@@ -121,17 +125,16 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
     )
 
     spell = SpellConfig(
-        tau_ratio=float(spell_data.get("tau_ratio", 0.5)),
+        tau_ratio=float(cast(str | int | float, spell_data.get("tau_ratio", 0.5))),
     )
 
+    mask_patterns = _parse_mask_patterns(tokenizer_data.get("mask_patterns", []))
     tokenizer = TokenizerConfig(
         delimiters=str(tokenizer_data.get("delimiters", DEFAULT_DELIMITERS)),
         extra_delimiters=tuple(
-            str(item) for item in tokenizer_data.get("extra_delimiters", [])
+            str(item) for item in _as_list(tokenizer_data.get("extra_delimiters", []))
         ),
-        mask_patterns=tuple(
-            str(item) for item in tokenizer_data.get("mask_patterns", [])
-        ),
+        mask_patterns=mask_patterns,
         use_jieba=bool(tokenizer_data.get("use_jieba", True)),
     )
 
@@ -146,7 +149,7 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         raise TypeError("header.field_patterns must be a TOML table")
 
     field_patterns: dict[str, str] = {}
-    for key, value in raw_field_patterns.items():
+    for key, value in cast(Mapping[object, object], raw_field_patterns).items():
         if not isinstance(value, str) or not value:
             raise ValueError(f"header.field_patterns.{key} must be a non-empty regex")
         field_patterns[str(key)] = value
@@ -196,3 +199,51 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
 
 def load_demo_config(config_path: Path) -> DemoConfig:
     return parse_demo_config(read_toml_config(config_path))
+
+
+def _parse_mask_patterns(raw_patterns: object) -> tuple[MaskPattern, ...]:
+    path = "tokenizer.mask_patterns"
+    if not isinstance(raw_patterns, list):
+        raise TypeError(f"{path} must be an array of TOML tables")
+
+    masks: list[MaskPattern] = []
+    names: set[str] = set()
+    for index, raw_mask in enumerate(cast(list[object], raw_patterns)):
+        item_path = f"{path}[{index}]"
+        if not isinstance(raw_mask, Mapping):
+            raise TypeError(f"{item_path} must be a TOML table")
+
+        if "name" not in raw_mask:
+            raise ValueError(f"{item_path}.name is required")
+        raw_name = raw_mask["name"]
+        if not isinstance(raw_name, str):
+            raise TypeError(f"{item_path}.name must be a string")
+        name = raw_name.strip()
+        if not name:
+            raise ValueError(f"{item_path}.name must be non-empty")
+        if name in names:
+            raise ValueError(f"{path} contains duplicate name {name!r}")
+
+        if "pattern" not in raw_mask:
+            raise ValueError(f"{item_path}.pattern is required")
+        pattern = raw_mask["pattern"]
+        if not isinstance(pattern, str):
+            raise TypeError(f"{item_path}.pattern must be a string")
+        if not pattern.strip():
+            raise ValueError(f"{item_path}.pattern must be non-empty")
+        try:
+            compiled = regex.compile(pattern)
+        except regex.error as exc:
+            raise ValueError(f"{item_path}.pattern is an invalid regex: {exc}") from exc
+        if compiled.search("") is not None:
+            raise ValueError(f"{item_path}.pattern must not match the empty string")
+
+        names.add(name)
+        masks.append(MaskPattern(name=name, pattern=pattern))
+    return tuple(masks)
+
+
+def _as_list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise TypeError("Expected a TOML array")
+    return cast(list[object], value)

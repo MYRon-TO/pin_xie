@@ -12,10 +12,14 @@ tau_ratio = 0.75
 delimiters = '[ =,:()\[\]\t\n\r]+'
 extra_delimiters = []
 use_jieba = true
-mask_patterns = [
-  '\b(?:\d{4}/\d{1,2}/\d{1,2})\s+(?:[01]?\d|2[0-3]):[0-5]\d\b',
-  '\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b',
-]
+
+[[tokenizer.mask_patterns]]
+name = 'datetime'
+pattern = '\b(?:\d{4}/\d{1,2}/\d{1,2})\s+(?:[01]?\d|2[0-3]):[0-5]\d\b'
+
+[[tokenizer.mask_patterns]]
+name = 'ipv4'
+pattern = '\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b'
 
 [header]
 parse_structure = '<time>, <user_name>, <context>'

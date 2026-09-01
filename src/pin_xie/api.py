@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# pyright: standard
 import json
 import random
 from collections.abc import Iterable, Iterator, Mapping
@@ -22,9 +23,18 @@ from .header import (
     HeaderValidationIssue,
     RegexHeaderParser,
 )
+from .models import (
+    InputToken,
+    ParameterCapture,
+    TemplateToken,
+    input_token_to_json,
+    parameter_capture_to_json,
+    template_token_to_json,
+    token_source_to_json,
+)
 from .multiline import LogRecordAssembler
 from .parser import SpellParser
-from .template import build_named_parameters, render_template_tokens
+from .template import render_template_tokens
 from .tokenizer import LogTokenizer
 
 TEMPLATE_CACHE_FILE = "templates.json"
@@ -45,12 +55,11 @@ class ParsedRecord:
     cluster_id: int
     context: str
     template: str
-    template_tokens: list[str]
-    parameters: list[str]
-    named_parameters: dict[str, str]
+    template_tokens: list[TemplateToken]
+    parameters: list[ParameterCapture]
     log: str
     header_fields: dict[str, str]
-    tokens: list[str] | None = None
+    tokens: list[InputToken] | None = None
 
 
 @dataclass
@@ -286,16 +295,12 @@ class PinXieEngine:
         variable_names: Mapping[int, str | None],
     ) -> dict[int, str]:
         cluster = self._get_cluster_or_raise(cluster_id)
-
-        for raw_index, var_name in variable_names.items():
-            var_index = int(raw_index)
-            cluster.set_variable_name(var_index, var_name)
-
-        return dict(cluster.variable_names)
+        cluster.replace_variable_names(variable_names)
+        return cluster.get_variable_names()
 
     def get_template_variable_names(self, cluster_id: int) -> dict[int, str]:
         cluster = self._get_cluster_or_raise(cluster_id)
-        return dict(cluster.variable_names)
+        return cluster.get_variable_names()
 
     def reset_model(self) -> None:
         self.parser = self._create_spell_parser()
@@ -320,14 +325,7 @@ class PinXieEngine:
         header_fields = {
             name: value for name, value in header.fields.items() if name != "context"
         }
-        variable_names: dict[int, str] = {}
-        if result.cluster_id >= 0:
-            cluster = self.parser.clusters_by_id.get(result.cluster_id)
-            if cluster is not None:
-                variable_names = dict(cluster.variable_names)
-        rendered_template_tokens = render_template_tokens(
-            result.template_tokens, variable_names
-        )
+        rendered_template_tokens = render_template_tokens(result.template_tokens)
         return ParsedRecord(
             line_id=effective_line_id,
             end_line_id=effective_end_line_id,
@@ -336,9 +334,8 @@ class PinXieEngine:
             cluster_id=result.cluster_id,
             context=header.context,
             template=" ".join(rendered_template_tokens),
-            template_tokens=rendered_template_tokens,
+            template_tokens=result.template_tokens,
             parameters=result.parameters,
-            named_parameters=build_named_parameters(result.parameters, variable_names),
             log=log,
             header_fields=header_fields,
             tokens=result.tokens,
@@ -510,10 +507,20 @@ class PinXieEngine:
             "shuffle": self.config.learning.shuffle,
             "random_seed": self.config.learning.random_seed,
         }
+        tokenizer_config = {
+            "delimiters": self.config.tokenizer.delimiters,
+            "extra_delimiters": list(self.config.tokenizer.extra_delimiters),
+            "use_jieba": self.config.tokenizer.use_jieba,
+            "mask_patterns": [
+                {"name": mask.name, "pattern": mask.pattern}
+                for mask in self.config.tokenizer.mask_patterns
+            ],
+        }
         state = self.parser.to_template_state(
             input_config=input_config,
             header_config=header_config,
             learning_config=learning_config,
+            tokenizer_config=tokenizer_config,
         )
 
         with cache_path.open("w", encoding="utf-8") as fp:
@@ -545,11 +552,21 @@ class PinXieEngine:
             "strict_mode": self.config.header.strict_mode,
             "field_patterns": dict(self.config.header.field_patterns),
         }
+        tokenizer_config = {
+            "delimiters": self.config.tokenizer.delimiters,
+            "extra_delimiters": list(self.config.tokenizer.extra_delimiters),
+            "use_jieba": self.config.tokenizer.use_jieba,
+            "mask_patterns": [
+                {"name": mask.name, "pattern": mask.pattern}
+                for mask in self.config.tokenizer.mask_patterns
+            ],
+        }
         loaded_parser = SpellParser.from_template_state(
             state,
             tokenizer=self.tokenizer,
             input_config=input_config,
             header_config=header_config,
+            tokenizer_config=tokenizer_config,
         )
         self.parser = loaded_parser
         return cache_path
@@ -575,14 +592,12 @@ class PinXieEngine:
             tpl_fp.write(
                 f"delimiters={self.config.tokenizer.delimiters} "
                 f"use_jieba={self.config.tokenizer.use_jieba} "
-                f"mask_patterns_count={len(self.config.tokenizer.mask_patterns)}\n\n"
+                f"mask_patterns_count={len(self.config.tokenizer.mask_patterns)} "
+                f"mask_pattern_names={json.dumps([mask.name for mask in self.config.tokenizer.mask_patterns], ensure_ascii=False)}\n\n"
             )
 
             for cluster in self.parser.all_clusters():
-                rendered_template_tokens = render_template_tokens(
-                    cluster.template_tokens,
-                    cluster.variable_names,
-                )
+                rendered_template_tokens = render_template_tokens(cluster.template_tokens)
                 template = " ".join(rendered_template_tokens)
                 line_ids_preview = ", ".join(
                     str(line_id) for line_id in cluster.line_ids[:20]
@@ -593,10 +608,13 @@ class PinXieEngine:
                 tpl_fp.write(f"Cluster {cluster.cluster_id}\n")
                 tpl_fp.write(f"  size: {cluster.size}\n")
                 tpl_fp.write(f"  template: {template}\n")
-                if cluster.variable_names:
-                    tpl_fp.write(
-                        f"  variable_names: {json.dumps(cluster.variable_names, ensure_ascii=False)}\n"
-                    )
+                for template_index, token in enumerate(cluster.template_tokens):
+                    if token.kind == "variable":
+                        sources = [token_source_to_json(source) for source in token.sources]
+                        tpl_fp.write(
+                            f"  variable[{template_index}]: var_name={token.var_name} "
+                            f"sources={json.dumps(sources, ensure_ascii=False)}\n"
+                        )
                 tpl_fp.write(f"  line_ids_count: {len(cluster.line_ids)}\n")
                 tpl_fp.write(f"  line_ids_preview: [{line_ids_preview}]\n")
                 tpl_fp.write("\n")
@@ -648,16 +666,19 @@ class PinXieEngine:
             "cluster_id": record.cluster_id,
             "context": record.context,
             "template": record.template,
-            "template_tokens": record.template_tokens,
-            "parameters": record.parameters,
-            "named_parameters": record.named_parameters,
+            "template_tokens": [
+                template_token_to_json(token) for token in record.template_tokens
+            ],
+            "parameters": [
+                parameter_capture_to_json(parameter) for parameter in record.parameters
+            ],
             "log": record.log,
         }
         for field_name, field_value in record.header_fields.items():
             payload[f"header_{field_name}"] = field_value
 
         if show_tokens and record.tokens is not None:
-            payload["tokens"] = record.tokens
+            payload["tokens"] = [input_token_to_json(token) for token in record.tokens]
 
         return payload
 

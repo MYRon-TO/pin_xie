@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from .models import InputToken, TemplateToken, input_token_text, template_literal_text
 
-def lcs(a: Sequence[str | None], b: Sequence[str]) -> tuple[int, list[str]]:
+
+def lcs(
+    a: Sequence[TemplateToken], b: Sequence[InputToken]
+) -> tuple[int, list[str]]:
     m = len(a)
     n = len(b)
 
@@ -13,22 +17,18 @@ def lcs(a: Sequence[str | None], b: Sequence[str]) -> tuple[int, list[str]]:
     dp: list[list[int]] = [[0] * (n + 1) for _ in range(m + 1)]
 
     for i in range(1, m + 1):
-        ai = a[i - 1]
+        ai = template_literal_text(a[i - 1])
         for j in range(1, n + 1):
-            if ai == b[j - 1]:
+            if ai is not None and ai == input_token_text(b[j - 1]):
                 dp[i][j] = dp[i - 1][j - 1] + 1
             else:
-                dp[i][j] = (
-                    dp[i - 1][j] if dp[i - 1][j] >= dp[i][j - 1] else dp[i][j - 1]
-                )
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
 
     i, j = m, n
     result: list[str] = []
     while i > 0 and j > 0:
-        if a[i - 1] == b[j - 1]:
-            token = a[i - 1]
-            if token is None:
-                raise ValueError("LCS internal error: variable slot matched a token")
+        token = template_literal_text(a[i - 1])
+        if token is not None and token == input_token_text(b[j - 1]):
             result.append(token)
             i -= 1
             j -= 1

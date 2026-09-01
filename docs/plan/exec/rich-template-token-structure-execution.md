@@ -67,15 +67,19 @@ pytest -q
 - 没有未解决的 Reviewer 实质发现；
 - `docs/plan/exec/` 中各 WU 状态与实际结果一致。
 
+### 5.1 已接受的项目级验证偏差
+
+用户选择接受既有 basedpyright warning 基线：本计划新增或修改的测试与生产文件聚焦检查为 `0 errors, 0 warnings`；`basedpyright src tests` 为 `0 errors, 54 warnings` 并以非零退出。54 条仅位于本计划未修改的 `src/pin_xie/header.py`、`src/pin_xie/demo.py`、`src/pin_xie/multiline.py`、`tests/test_header_validation.py`、`tests/test_multiline_assembly.py`。最终报告不得声称全仓 basedpyright 命令通过。
+
 ## 6. 状态
 
 | WU/检查点 | 状态 |
 |---|---|
-| WU01 | 待执行 |
-| WU03 | 待执行 |
-| WU02 | 待执行 |
-| CP1 | 待执行 |
-| WU04 | 待执行 |
-| WU05 | 待执行 |
-| WU06 | 待执行 |
-| CP2 | 待执行 |
+| WU01 | 已完成 |
+| WU03 | 已完成 |
+| WU02 | 已完成 |
+| CP1 | 已完成（无阻塞发现） |
+| WU04 | 已完成 |
+| WU05 | 已完成 |
+| WU06 | 已完成（接受既有 basedpyright warning 基线） |
+| CP2 | 已完成（无阻塞发现） |
