@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 # Allow running this script directly from the repository without installation:
@@ -84,7 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _require_columns(fieldnames: list[str] | None, required: list[str]) -> None:
+def _require_columns(fieldnames: Sequence[str] | None, required: list[str]) -> None:
     if fieldnames is None:
         raise ValueError("Input CSV is empty or missing a header row")
 

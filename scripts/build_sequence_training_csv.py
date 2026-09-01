@@ -22,7 +22,7 @@ import argparse
 import csv
 import json
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -152,7 +152,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 
-def _require_columns(fieldnames: list[str] | None, required: list[str]) -> None:
+def _require_columns(fieldnames: Sequence[str] | None, required: list[str]) -> None:
     if fieldnames is None:
         raise ValueError("Input CSV is empty or missing a header row")
 

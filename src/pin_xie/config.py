@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .header import HeaderConfigurationError, RegexHeaderParser
 from .tokenizer import DEFAULT_DELIMITERS
@@ -96,8 +96,10 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         raise ValueError("input.mode must be 'single' or 'multiline'") from exc
     if not isinstance(spell_data, Mapping):
         raise TypeError("spell must be a TOML table")
+    spell_data = cast(Mapping[str, Any], spell_data)
     if not isinstance(tokenizer_data, Mapping):
         raise TypeError("tokenizer must be a TOML table")
+    tokenizer_data = cast(Mapping[str, Any], tokenizer_data)
     if not isinstance(header_data, Mapping):
         raise TypeError("header must be a TOML table")
     if not isinstance(output_data, Mapping):

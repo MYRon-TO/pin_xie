@@ -326,7 +326,7 @@ class SpellParser:
         if not isinstance(input_config, Mapping):
             raise ValueError("Invalid template cache: input must be an object")
         mode = input_config.get("mode")
-        if mode not in {"single", "multiline"}:
+        if not isinstance(mode, str) or mode not in {"single", "multiline"}:
             raise ValueError(
                 "Invalid template cache: input.mode must be 'single' or 'multiline'"
             )

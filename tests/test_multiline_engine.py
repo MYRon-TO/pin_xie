@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-
 import pytest
 
 from pin_xie import (
@@ -279,13 +279,13 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
     ],
 )
 def test_template_cache_rejects_each_config_difference(
-    tmp_path: Path, mutate: object, difference: str
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None], difference: str
 ) -> None:
     config = build_config(tmp_path, InputMode.MULTILINE)
     cache_dir = tmp_path / "cache"
     cache_path = PinXieEngine(config).save_template_cache(cache_dir)
     state = json.loads(cache_path.read_text(encoding="utf-8"))
-    mutate(state)  # type: ignore[operator]
+    mutate(state)
     cache_path.write_text(json.dumps(state), encoding="utf-8")
 
     engine = PinXieEngine(config)
