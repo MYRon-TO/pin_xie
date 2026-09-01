@@ -20,6 +20,12 @@ class InputMode(str, Enum):
 class InputConfig:
     mode: InputMode
 
+
+@dataclass(frozen=True)
+class LearningConfig:
+    shuffle: bool = False
+    random_seed: int | None = None
+
 @dataclass
 class SpellConfig:
     tau_ratio: float = 0.5
@@ -55,6 +61,7 @@ class DemoConfig:
     tokenizer: TokenizerConfig
     header: HeaderConfig
     output: OutputConfig
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
 
 def read_toml_config(config_path: Path) -> dict[str, Any]:
@@ -74,6 +81,7 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
     tokenizer_data = data.get("tokenizer", {})
     header_data = data.get("header")
     output_data = data.get("output", {})
+    learning_data = data.get("learning", {})
 
     if not isinstance(input_data, Mapping):
         raise TypeError("input must be a TOML table")
@@ -94,6 +102,21 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         raise TypeError("header must be a TOML table")
     if not isinstance(output_data, Mapping):
         raise TypeError("output must be a TOML table")
+    if not isinstance(learning_data, Mapping):
+        raise TypeError("learning must be a TOML table")
+
+    raw_shuffle = learning_data.get("shuffle", False)
+    if not isinstance(raw_shuffle, bool):
+        raise TypeError("learning.shuffle must be a bool")
+    raw_random_seed = learning_data.get("random_seed")
+    if raw_random_seed is not None and (
+        not isinstance(raw_random_seed, int) or isinstance(raw_random_seed, bool)
+    ):
+        raise TypeError("learning.random_seed must be an int")
+    learning = LearningConfig(
+        shuffle=raw_shuffle,
+        random_seed=raw_random_seed,
+    )
 
     spell = SpellConfig(
         tau_ratio=float(spell_data.get("tau_ratio", 0.5)),
@@ -165,6 +188,7 @@ def parse_demo_config(data: Mapping[str, Any]) -> DemoConfig:
         tokenizer=tokenizer,
         header=header,
         output=output,
+        learning=learning,
     )
 
 

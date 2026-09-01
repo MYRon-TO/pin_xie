@@ -168,13 +168,16 @@ class SpellParser:
         *,
         input_config: Mapping[str, Any],
         header_config: Mapping[str, Any],
+        learning_config: Mapping[str, Any],
     ) -> dict[str, Any]:
         normalized_input = self._normalize_input_config(input_config)
         normalized_header = self._normalize_header_config(header_config)
+        normalized_learning = self._normalize_learning_config(learning_config)
         return {
-            "version": 2,
+            "version": 3,
             "input": normalized_input,
             "header": normalized_header,
+            "learning": normalized_learning,
             "tau_ratio": self.tau_ratio,
             "next_cluster_id": self.next_cluster_id,
             "clusters": [
@@ -292,15 +295,17 @@ class SpellParser:
         if not isinstance(state, Mapping):
             raise ValueError("Invalid template cache: root must be an object")
         version = state.get("version")
-        if version == 1:
+        if isinstance(version, int) and not isinstance(version, bool) and version in {1, 2}:
             raise ValueError(
-                "Unsupported template cache version 1; run learn again to rebuild the cache"
+                f"Unsupported template cache version {version}; "
+                "run learn again to rebuild the cache"
             )
-        if not isinstance(version, int) or isinstance(version, bool) or version != 2:
+        if not isinstance(version, int) or isinstance(version, bool) or version != 3:
             raise ValueError(f"Unsupported template cache version {version!r}")
 
         cached_input = cls._normalize_input_config(state.get("input"))
         cached_header = cls._normalize_header_config(state.get("header"))
+        cls._normalize_learning_config(state.get("learning"))
         differences: list[str] = []
         if input_config is not None:
             current_input = cls._normalize_input_config(input_config)
@@ -326,6 +331,22 @@ class SpellParser:
                 "Invalid template cache: input.mode must be 'single' or 'multiline'"
             )
         return {"mode": mode}
+
+    @staticmethod
+    def _normalize_learning_config(learning_config: Any) -> dict[str, Any]:
+        if not isinstance(learning_config, Mapping):
+            raise ValueError("Invalid template cache: learning must be an object")
+        shuffle = learning_config.get("shuffle")
+        if not isinstance(shuffle, bool):
+            raise ValueError("Invalid template cache: learning.shuffle must be a bool")
+        random_seed = learning_config.get("random_seed")
+        if random_seed is not None and (
+            not isinstance(random_seed, int) or isinstance(random_seed, bool)
+        ):
+            raise ValueError(
+                "Invalid template cache: learning.random_seed must be an int or null"
+            )
+        return {"shuffle": shuffle, "random_seed": random_seed}
 
     @staticmethod
     def _normalize_header_config(header_config: Any) -> dict[str, Any]:

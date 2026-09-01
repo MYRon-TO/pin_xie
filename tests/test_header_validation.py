@@ -197,6 +197,31 @@ def test_parse_config_rejects_invalid_input_modes() -> None:
         PinXieEngine.parse_config_data({"input": {"mode": "automatic"}, **base})
 
 
+def test_parse_config_parses_and_validates_learning_settings() -> None:
+    import pytest
+
+    base = {
+        "input": {"mode": "single"},
+        "header": {"parse_structure": "<context>"},
+    }
+    default_config = PinXieEngine.parse_config_data(base)
+    assert default_config.learning.shuffle is False
+    assert default_config.learning.random_seed is None
+
+    configured = PinXieEngine.parse_config_data(
+        {**base, "learning": {"shuffle": True, "random_seed": 0}}
+    )
+    assert configured.learning.shuffle is True
+    assert configured.learning.random_seed == 0
+
+    with pytest.raises(TypeError, match="learning.shuffle must be a bool"):
+        PinXieEngine.parse_config_data({**base, "learning": {"shuffle": 1}})
+    with pytest.raises(TypeError, match="learning.random_seed must be an int"):
+        PinXieEngine.parse_config_data(
+            {**base, "learning": {"random_seed": True}}
+        )
+
+
 def test_multiline_config_constraints() -> None:
     import pytest
 

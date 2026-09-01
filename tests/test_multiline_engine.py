@@ -10,6 +10,7 @@ from pin_xie import (
     HeaderConfig,
     InputConfig,
     InputMode,
+    LearningConfig,
     OutputConfig,
     PinXieEngine,
     RunMode,
@@ -159,6 +160,84 @@ def test_learning_modes_update_existing_template_cache(
     assert len(reloaded.parser.all_clusters()) == 2
 
 
+def test_learn_shuffle_is_seeded_and_uses_logical_records(tmp_path: Path) -> None:
+    config = build_config(tmp_path, InputMode.MULTILINE)
+    config.learning = LearningConfig(shuffle=True, random_seed=1)
+    log_path = tmp_path / "input.log"
+    log_path.write_text(
+        "2026-03-20 ERROR alpha\n"
+        "alpha detail\n"
+        "2026-03-21 ERROR beta gamma\n"
+        "beta detail\n"
+        "2026-03-22 ERROR delta gamma theta\n",
+        encoding="utf-8",
+    )
+
+    engine = PinXieEngine(config)
+    report = engine.run_file(
+        log_path, mode=RunMode.LEARN, template_dir=tmp_path / "cache"
+    )
+
+    assert report.processed_records == 3
+    assert report.processed_physical_lines == 5
+    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [3, 5, 1]
+
+
+def test_learn_parse_shuffles_learning_but_parses_in_original_order(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path, InputMode.SINGLE)
+    config.learning = LearningConfig(shuffle=True, random_seed=1)
+    log_path = tmp_path / "input.log"
+    log_path.write_text("alpha\nbeta gamma\ndelta gamma theta\n", encoding="utf-8")
+
+    engine = PinXieEngine(config)
+    report = engine.run_file(
+        log_path, mode=RunMode.LEARN_PARSE, template_dir=tmp_path / "cache"
+    )
+
+    assert report.processed_records == 3
+    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [2, 3, 1]
+    assert report.parsed_output_path is not None
+    payloads = [
+        json.loads(line)
+        for line in report.parsed_output_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [payload["log"] for payload in payloads] == [
+        "alpha",
+        "beta gamma",
+        "delta gamma theta",
+    ]
+    assert sum(cluster.size for cluster in engine.parser.all_clusters()) == 3
+
+
+def test_parse_ignores_learning_shuffle_and_cache_does_not_compare_it(
+    tmp_path: Path,
+) -> None:
+    training_config = build_config(tmp_path, InputMode.SINGLE)
+    cache_dir = tmp_path / "cache"
+    train_path = tmp_path / "train.log"
+    train_path.write_text("alpha\nbeta gamma\n", encoding="utf-8")
+    PinXieEngine(training_config).run_file(
+        train_path, mode=RunMode.LEARN, template_dir=cache_dir
+    )
+
+    parse_config = build_config(tmp_path, InputMode.SINGLE)
+    parse_config.learning = LearningConfig(shuffle=True, random_seed=99)
+    parse_path = tmp_path / "parse.log"
+    parse_path.write_text("alpha\nbeta gamma\n", encoding="utf-8")
+    report = PinXieEngine(parse_config).run_file(
+        parse_path, mode=RunMode.PARSE, template_dir=cache_dir
+    )
+
+    assert report.parsed_output_path is not None
+    payloads = [
+        json.loads(line)
+        for line in report.parsed_output_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [payload["log"] for payload in payloads] == ["alpha", "beta gamma"]
+
+
 def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> None:
     config = build_config(tmp_path, InputMode.MULTILINE)
     engine = PinXieEngine(config)
@@ -168,7 +247,7 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
     cache_path = engine.save_template_cache(cache_dir)
     state = json.loads(cache_path.read_text(encoding="utf-8"))
 
-    assert state["version"] == 2
+    assert state["version"] == 3
     assert state["input"] == {"mode": "multiline"}
     assert state["header"] == {
         "parse_structure": "<time> <level> <context>",
@@ -178,6 +257,7 @@ def test_template_cache_v2_saves_and_loads_complete_config(tmp_path: Path) -> No
             "level": r"INFO|ERROR",
         },
     }
+    assert state["learning"] == {"shuffle": False, "random_seed": None}
     loaded = PinXieEngine(config)
     loaded.load_template_cache(cache_dir)
     assert len(loaded.parser.all_clusters()) == 1
@@ -232,9 +312,23 @@ def test_template_cache_rejects_v1_without_partial_load(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "invalid_state",
     [
-        [],
-        {"version": 2, "input": [], "header": {}},
-        {"version": 2, "input": {"mode": "single"}, "header": []},
+        {"version": 3, "input": [], "header": {}, "learning": {}},
+        {
+            "version": 3,
+            "input": {"mode": "single"},
+            "header": [],
+            "learning": {},
+        },
+        {
+            "version": 3,
+            "input": {"mode": "single"},
+            "header": {
+                "parse_structure": "<context>",
+                "strict_mode": False,
+                "field_patterns": {},
+            },
+            "learning": [],
+        },
     ],
 )
 def test_template_cache_structure_failure_does_not_replace_model(

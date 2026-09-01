@@ -167,6 +167,20 @@ mode = 'single'
 - `single`：每个非空物理行是一条逻辑日志，允许 `parse_structure = '<context>'`；纯空白行跳过。
 - `multiline`：Header 行开始新日志，后续非 Header 行（包括空行和缩进行）原样并入正文，直到下一个 Header 或 EOF。第一条 Header 前的任何物理行都会报带行号的组装错误。
 
+### `[learning]`
+
+```toml
+[learning]
+shuffle = false
+random_seed = 42
+```
+
+- `shuffle`：是否在文件学习前随机打乱完整逻辑日志，默认 `false`。
+- `random_seed`：可选随机种子；相同输入、初始模板缓存和种子会产生相同学习顺序。
+- 打乱只应用于 `run_file()` 的学习行为，`process_lines()` 和 `PARSE` 不打乱。
+- `LEARN_PARSE` 启用打乱时，先按随机顺序学习，再按输入原序解析且不更新模型。
+- 打乱发生在多行组装完成后，不改变逻辑日志内部的物理行顺序。启用后会将全部逻辑日志载入内存。
+
 ### `[spell]`
 
 - `tau_ratio`：LCS 匹配阈值比例，默认 `0.5`（即 `tau = max(1, int(token_count * tau_ratio))`）。
@@ -236,7 +250,7 @@ level = 'DEBUG|INFO|WARN|ERROR|FATAL'
 
 `RunReport.processed_records` 统计交给 Spell 的逻辑日志数；`processed_physical_lines` 统计读取的全部物理行（包括 single 模式跳过的空白行）。
 
-模板缓存当前版本为 2，并保存完整 `[input]` 与 `[header]` 配置。加载时 `mode`、`parse_structure`、`strict_mode` 或 `field_patterns` 任一不一致都会拒绝加载；版本 1 不迁移，需用当前配置重新执行 learn。
+模板缓存当前版本为 3，保存完整 `[input]`、`[header]` 配置及 `[learning]` 训练元数据。加载时仅校验影响解析兼容性的 `mode`、`parse_structure`、`strict_mode` 和 `field_patterns`；`shuffle` 与 `random_seed` 不参与兼容性比较。旧版本缓存不迁移，需用当前配置重新执行 learn。
 
 ## 致谢与参考文献
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -427,9 +428,41 @@ class PinXieEngine:
                 yield raw_line
 
         with log_path.open("r", encoding="utf-8") as input_fp:
-            records = self.process_lines(
-                count_lines(input_fp), update_model=should_update_model
-            )
+            if should_update_model and self.config.learning.shuffle:
+                assembler = LogRecordAssembler(
+                    self.config.input.mode, self.header_parser
+                )
+                logical_logs = list(
+                    assembler.assemble(count_lines(input_fp), start_line=1)
+                )
+                learning_logs = list(logical_logs)
+                random.Random(self.config.learning.random_seed).shuffle(learning_logs)
+                for logical_log in learning_logs:
+                    self.process_log(
+                        logical_log.text,
+                        line_id=logical_log.start_line,
+                        end_line_id=logical_log.end_line,
+                        update_model=True,
+                    )
+
+                if should_write_parsed_output:
+                    records = (
+                        self.process_log(
+                            logical_log.text,
+                            line_id=logical_log.start_line,
+                            end_line_id=logical_log.end_line,
+                            update_model=False,
+                        )
+                        for logical_log in logical_logs
+                    )
+                else:
+                    records = iter(())
+                    processed_records = len(logical_logs)
+            else:
+                records = self.process_lines(
+                    count_lines(input_fp), update_model=should_update_model
+                )
+
             if should_write_parsed_output and parsed_output_path is not None:
                 with parsed_output_path.open("w", encoding="utf-8") as parsed_fp:
                     for record in records:
@@ -473,8 +506,14 @@ class PinXieEngine:
             "field_patterns": dict(self.config.header.field_patterns),
         }
         input_config = {"mode": self.config.input.mode.value}
+        learning_config = {
+            "shuffle": self.config.learning.shuffle,
+            "random_seed": self.config.learning.random_seed,
+        }
         state = self.parser.to_template_state(
-            input_config=input_config, header_config=header_config
+            input_config=input_config,
+            header_config=header_config,
+            learning_config=learning_config,
         )
 
         with cache_path.open("w", encoding="utf-8") as fp:

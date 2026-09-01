@@ -1,6 +1,10 @@
 [input]
 mode = 'single' # single | multiline
 
+[learning]
+shuffle = false
+random_seed = 42
+
 [spell]
 tau_ratio = 0.75
 
