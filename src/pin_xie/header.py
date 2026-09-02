@@ -292,7 +292,9 @@ class RegexHeaderParser:
         parts = [r"\A"]
         cursor = 0
         for match in PLACEHOLDER_RE.finditer(prefix_structure):
-            parts.append(cls._literal_to_regex(prefix_structure[cursor : match.start()]))
+            parts.append(
+                cls._literal_to_regex(prefix_structure[cursor : match.start()])
+            )
             field_name = match.group(1)
             field_pattern = field_patterns.get(field_name)
             if not field_pattern:
@@ -647,7 +649,9 @@ class RegexHeaderParser:
         for field_name in self.fields_in_structure:
             value = match.group(field_name)
             parsed_fields[field_name] = (
-                value if field_name == "context" and value is not None else (value or "").strip()
+                value
+                if field_name == "context" and value is not None
+                else (value or "").strip()
             )
 
         context = parsed_fields.get("context", "")

@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 import pin_xie
+import pytest
 from pin_xie import (
     DemoConfig,
     HeaderConfig,
@@ -62,8 +61,13 @@ def test_rich_record_and_explicit_payload(tmp_path: Path) -> None:
     payload = engine._record_to_payload(record, show_tokens=True)
 
     assert record.template == "connect from host <VAR:var_0>"
-    assert all(isinstance(token, (LiteralTemplateToken, VariableTemplateToken)) for token in record.template_tokens)
-    assert all(isinstance(parameter, ParameterCapture) for parameter in record.parameters)
+    assert all(
+        isinstance(token, (LiteralTemplateToken, VariableTemplateToken))
+        for token in record.template_tokens
+    )
+    assert all(
+        isinstance(parameter, ParameterCapture) for parameter in record.parameters
+    )
     assert all(isinstance(token, InputToken) for token in record.tokens or [])
     assert payload["template_tokens"] == [
         {"kind": "literal", "text": "connect", "sources": [{"kind": "plain"}]},
@@ -94,7 +98,11 @@ def test_rich_record_and_explicit_payload(tmp_path: Path) -> None:
     ]
     assert "named_parameters" not in payload
     assert payload["header_level"] == "ERROR"
-    assert (payload["line_id"], payload["end_line_id"], payload["physical_line_count"]) == (2, 2, 1)
+    assert (
+        payload["line_id"],
+        payload["end_line_id"],
+        payload["physical_line_count"],
+    ) == (2, 2, 1)
 
 
 def test_show_tokens_false_omits_key(tmp_path: Path) -> None:
@@ -131,7 +139,9 @@ def test_template_summary_has_variable_sources_and_mask_names(tmp_path: Path) ->
 
     assert 'mask_patterns_count=2 mask_pattern_names=["ipv4", "number"]' in summary
     assert "variable[3]: var_name=var_0" in summary
-    assert 'sources=[{"kind": "plain"}, {"kind": "regex", "mask_name": "ipv4"}]' in summary
+    assert (
+        'sources=[{"kind": "plain"}, {"kind": "regex", "mask_name": "ipv4"}]' in summary
+    )
     assert "variable_names:" not in summary
 
 

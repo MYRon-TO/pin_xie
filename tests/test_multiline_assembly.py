@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from pin_xie import InputMode, RegexHeaderParser
 from pin_xie.multiline import LogAssemblyError, LogicalLog, LogRecordAssembler
 
@@ -50,11 +49,7 @@ def test_multiline_splits_logs_and_preserves_blank_lines_and_indentation() -> No
 
     assert records == [
         LogicalLog(
-            text=(
-                "2026-03-20 10:00:00 ERROR failed\n"
-                "Traceback:\n"
-                "  File app.py  \n"
-            ),
+            text=("2026-03-20 10:00:00 ERROR failed\nTraceback:\n  File app.py  \n"),
             start_line=1,
             end_line=4,
         ),
@@ -101,10 +96,7 @@ def test_matching_body_line_starts_record_and_damaged_header_is_continuation() -
 
     assert list(assembler.assemble(lines)) == [
         LogicalLog(
-            text=(
-                "2026-03-20 10:00:00 INFO first\n"
-                "2026-03-20 10:00:01 WARN damaged"
-            ),
+            text=("2026-03-20 10:00:00 INFO first\n2026-03-20 10:00:01 WARN damaged"),
             start_line=1,
             end_line=2,
         ),

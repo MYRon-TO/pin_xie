@@ -54,10 +54,8 @@ class OutputStats:
     sequence_count: int
 
 
-
 def _optional_path(value: str) -> Path | None:
     return None if value == "" else Path(value)
-
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -85,11 +83,21 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("config/Config.toml"),
         help="Pin Xie TOML config path. Default uses parse_structure='<context>'.",
     )
-    parser.add_argument("--host-col", default="host", help="Input host/entity column name")
-    parser.add_argument("--content-col", default="content", help="Input log content column name")
-    parser.add_argument("--is-attack-col", default="is_attack", help="Input attack flag column name")
-    parser.add_argument("--technique-col", default="technique", help="Input technique column name")
-    parser.add_argument("--attack-name-col", default="attack_name", help="Input attack name column name")
+    parser.add_argument(
+        "--host-col", default="host", help="Input host/entity column name"
+    )
+    parser.add_argument(
+        "--content-col", default="content", help="Input log content column name"
+    )
+    parser.add_argument(
+        "--is-attack-col", default="is_attack", help="Input attack flag column name"
+    )
+    parser.add_argument(
+        "--technique-col", default="technique", help="Input technique column name"
+    )
+    parser.add_argument(
+        "--attack-name-col", default="attack_name", help="Input attack name column name"
+    )
     parser.add_argument(
         "--output-entity-col",
         default="entity_col",
@@ -151,7 +159,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def _require_columns(fieldnames: Sequence[str] | None, required: list[str]) -> None:
     if fieldnames is None:
         raise ValueError("Input CSV is empty or missing a header row")
@@ -163,7 +170,6 @@ def _require_columns(fieldnames: Sequence[str] | None, required: list[str]) -> N
             + ", ".join(missing)
             + f". Available columns: {', '.join(fieldnames)}"
         )
-
 
 
 def _parse_bool(value: str, *, column_name: str, row_number: int) -> bool:
@@ -178,12 +184,10 @@ def _parse_bool(value: str, *, column_name: str, row_number: int) -> bool:
     )
 
 
-
 def _append_unique_non_empty(values: list[str], value: str) -> None:
     normalized = value.strip()
     if normalized and normalized not in values:
         values.append(normalized)
-
 
 
 def _sequence_attack_names(
@@ -196,7 +200,6 @@ def _sequence_attack_names(
         if processed_row.is_attack:
             _append_unique_non_empty(attack_names, processed_row.row[attack_name_col])
     return attack_names
-
 
 
 def _write_sequence(
@@ -216,9 +219,13 @@ def _write_sequence(
     if not sequence_rows:
         return 0
 
-    attack_names = _sequence_attack_names(sequence_rows, attack_name_col=attack_name_col)
+    attack_names = _sequence_attack_names(
+        sequence_rows, attack_name_col=attack_name_col
+    )
     is_abnormal_sequence = bool(attack_names)
-    serialized_attack_names = json.dumps(attack_names, ensure_ascii=False) if is_abnormal_sequence else ""
+    serialized_attack_names = (
+        json.dumps(attack_names, ensure_ascii=False) if is_abnormal_sequence else ""
+    )
 
     written = 0
     for processed_row in sequence_rows:
@@ -245,7 +252,6 @@ def _write_sequence(
         written += 1
 
     return written
-
 
 
 def build_sequence_training_csv(args: argparse.Namespace) -> OutputStats:
@@ -363,8 +369,9 @@ def build_sequence_training_csv(args: argparse.Namespace) -> OutputStats:
             summary_path = engine.write_template_summary(args.template_summary)
             print(f"Template summary: {summary_path}")
 
-    return OutputStats(read_rows=read_rows, written_rows=written_rows, sequence_count=sequence_count)
-
+    return OutputStats(
+        read_rows=read_rows, written_rows=written_rows, sequence_count=sequence_count
+    )
 
 
 def main() -> int:

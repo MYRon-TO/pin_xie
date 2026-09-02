@@ -314,7 +314,9 @@ class PinXieEngine:
         update_model: bool = True,
     ) -> ParsedRecord:
         effective_line_id = self.parser.next_line_id if line_id is None else line_id
-        effective_end_line_id = effective_line_id if end_line_id is None else end_line_id
+        effective_end_line_id = (
+            effective_line_id if end_line_id is None else end_line_id
+        )
         if effective_end_line_id < effective_line_id:
             raise ValueError("end_line_id must be greater than or equal to line_id")
 
@@ -597,7 +599,9 @@ class PinXieEngine:
             )
 
             for cluster in self.parser.all_clusters():
-                rendered_template_tokens = render_template_tokens(cluster.template_tokens)
+                rendered_template_tokens = render_template_tokens(
+                    cluster.template_tokens
+                )
                 template = " ".join(rendered_template_tokens)
                 line_ids_preview = ", ".join(
                     str(line_id) for line_id in cluster.line_ids[:20]
@@ -610,7 +614,9 @@ class PinXieEngine:
                 tpl_fp.write(f"  template: {template}\n")
                 for template_index, token in enumerate(cluster.template_tokens):
                     if token.kind == "variable":
-                        sources = [token_source_to_json(source) for source in token.sources]
+                        sources = [
+                            token_source_to_json(source) for source in token.sources
+                        ]
                         tpl_fp.write(
                             f"  variable[{template_index}]: var_name={token.var_name} "
                             f"sources={json.dumps(sources, ensure_ascii=False)}\n"

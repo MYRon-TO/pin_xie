@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-
 from pin_xie.config import parse_demo_config
 from pin_xie.models import (
     InputToken,
@@ -166,6 +165,7 @@ def test_sources_are_normalized_and_serialized_explicitly() -> None:
             {"kind": "regex", "mask_name": "zebra"},
         ],
     }
-    assert parameter_capture_to_json(capture)["sources"] == template_token_to_json(
-        variable
-    )["sources"]
+    assert (
+        parameter_capture_to_json(capture)["sources"]
+        == template_token_to_json(variable)["sources"]
+    )

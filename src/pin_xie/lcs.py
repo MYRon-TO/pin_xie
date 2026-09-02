@@ -5,9 +5,7 @@ from collections.abc import Sequence
 from .models import InputToken, TemplateToken, input_token_text, template_literal_text
 
 
-def lcs(
-    a: Sequence[TemplateToken], b: Sequence[InputToken]
-) -> tuple[int, list[str]]:
+def lcs(a: Sequence[TemplateToken], b: Sequence[InputToken]) -> tuple[int, list[str]]:
     m = len(a)
     n = len(b)
 

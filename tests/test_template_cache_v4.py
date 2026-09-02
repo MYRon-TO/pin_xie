@@ -8,14 +8,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from pin_xie.api import PinXieEngine
 from pin_xie.models import InputToken, ParameterCapture
 from pin_xie.parser import SpellParser
 from pin_xie.tokenizer import LogTokenizer
 
 INPUT: dict[str, Any] = {"mode": "single"}
-HEADER: dict[str, Any] = {"parse_structure": "<context>", "strict_mode": False, "field_patterns": {}}
+HEADER: dict[str, Any] = {
+    "parse_structure": "<context>",
+    "strict_mode": False,
+    "field_patterns": {},
+}
 LEARNING: dict[str, Any] = {"shuffle": False, "random_seed": None}
 TOKENIZER: dict[str, Any] = {
     "delimiters": " ",
@@ -32,7 +35,9 @@ def make_parser() -> SpellParser:
     from pin_xie.models import MaskPattern
 
     tokenizer = LogTokenizer(
-        delimiters=" ", extra_delimiters=(":",), use_jieba=False,
+        delimiters=" ",
+        extra_delimiters=(":",),
+        use_jieba=False,
         mask_patterns=(MaskPattern("number", r"\d+"), MaskPattern("word", r"[a-z]+")),
     )
     parser = SpellParser(tokenizer=tokenizer)
@@ -43,14 +48,19 @@ def make_parser() -> SpellParser:
 
 def state() -> dict[str, Any]:
     return make_parser().to_template_state(
-        input_config=INPUT, header_config=HEADER, learning_config=LEARNING,
+        input_config=INPUT,
+        header_config=HEADER,
+        learning_config=LEARNING,
         tokenizer_config=TOKENIZER,
     )
 
 
 def load(raw: dict[str, Any]) -> SpellParser:
     return SpellParser.from_template_state(
-        raw, input_config=INPUT, header_config=HEADER, tokenizer_config=TOKENIZER,
+        raw,
+        input_config=INPUT,
+        header_config=HEADER,
+        tokenizer_config=TOKENIZER,
     )
 
 
@@ -66,7 +76,10 @@ def test_v4_round_trip_preserves_rich_tokens_sources_and_trie() -> None:
         {"kind": "regex", "mask_name": "word"},
     ]
     restored = load(raw)
-    assert restored.all_clusters()[0].template_tokens == parser.all_clusters()[0].template_tokens
+    assert (
+        restored.all_clusters()[0].template_tokens
+        == parser.all_clusters()[0].template_tokens
+    )
     result = restored.process("job 99 ok", update_model=False)
     assert result.cluster_id == 0
     assert all(isinstance(token, InputToken) for token in result.tokens)
@@ -81,13 +94,18 @@ def test_old_versions_require_relearning(version: int) -> None:
         load(raw)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("delimiters", "|"),
-    ("extra_delimiters", []),
-    ("use_jieba", True),
-    ("mask_patterns", list(reversed(TOKENIZER["mask_patterns"]))),
-])
-def test_every_tokenizer_field_and_mask_order_is_compared(field: str, value: object) -> None:
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("delimiters", "|"),
+        ("extra_delimiters", []),
+        ("use_jieba", True),
+        ("mask_patterns", list(reversed(TOKENIZER["mask_patterns"]))),
+    ],
+)
+def test_every_tokenizer_field_and_mask_order_is_compared(
+    field: str, value: object
+) -> None:
     raw = state()
     raw_tokenizer = raw["tokenizer"]
     assert isinstance(raw_tokenizer, dict)
@@ -96,15 +114,18 @@ def test_every_tokenizer_field_and_mask_order_is_compared(field: str, value: obj
         load(raw)
 
 
-@pytest.mark.parametrize("mutator", [
-    lambda raw: raw["clusters"][0]["template_tokens"][0].update(kind="bad"),
-    lambda raw: raw["clusters"][0]["template_tokens"][0].update(text=3),
-    lambda raw: raw["clusters"][0]["template_tokens"][1].update(var_name=" "),
-    lambda raw: raw["clusters"][0]["template_tokens"][1]["sources"].append(
-        raw["clusters"][0]["template_tokens"][1]["sources"][0]
-    ),
-    lambda raw: raw["clusters"][0]["template_tokens"][1]["sources"].reverse(),
-])
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda raw: raw["clusters"][0]["template_tokens"][0].update(kind="bad"),
+        lambda raw: raw["clusters"][0]["template_tokens"][0].update(text=3),
+        lambda raw: raw["clusters"][0]["template_tokens"][1].update(var_name=" "),
+        lambda raw: raw["clusters"][0]["template_tokens"][1]["sources"].append(
+            raw["clusters"][0]["template_tokens"][1]["sources"][0]
+        ),
+        lambda raw: raw["clusters"][0]["template_tokens"][1]["sources"].reverse(),
+    ],
+)
 def test_invalid_token_unions_and_sources_are_rejected(mutator) -> None:
     raw = state()
     mutator(raw)

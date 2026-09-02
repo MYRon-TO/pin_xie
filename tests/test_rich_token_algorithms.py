@@ -47,41 +47,52 @@ def test_lcs_variable_token_never_matches_input_text() -> None:
 def test_jaccard_filter_ignores_input_source() -> None:
     cluster = LCSObject(1, [literal("A"), literal("B", regex=True)])
 
-    assert jaccard_filter([input_token("A"), input_token("B", regex=True)], [cluster]) == [
-        cluster
-    ]
-    assert jaccard_filter([input_token("A", regex=True), input_token("B")], [cluster]) == [
-        cluster
-    ]
+    assert jaccard_filter(
+        [input_token("A"), input_token("B", regex=True)], [cluster]
+    ) == [cluster]
+    assert jaccard_filter(
+        [input_token("A", regex=True), input_token("B")], [cluster]
+    ) == [cluster]
 
 
 def test_jaccard_filter_repeated_tokens_still_raise_threshold() -> None:
     cluster = LCSObject(1, [literal("A"), literal("B")])
 
-    assert jaccard_filter(
-        [input_token("A"), input_token("A"), input_token("B"), input_token("B")],
-        [cluster],
-    ) == []
+    assert (
+        jaccard_filter(
+            [input_token("A"), input_token("A"), input_token("B"), input_token("B")],
+            [cluster],
+        )
+        == []
+    )
 
 
 def test_trie_ignores_sources_and_variable_names() -> None:
-    cluster = LCSObject(
-        1, [literal("A", regex=True), variable("first"), literal("B")]
-    )
+    cluster = LCSObject(1, [literal("A", regex=True), variable("first"), literal("B")])
     trie = PrefixTree()
     trie.insert(cluster)
 
-    assert trie.match(
-        [input_token("A"), input_token("value", regex=True), input_token("B", regex=True)],
-        {1: cluster},
-    ) == 1
+    assert (
+        trie.match(
+            [
+                input_token("A"),
+                input_token("value", regex=True),
+                input_token("B", regex=True),
+            ],
+            {1: cluster},
+        )
+        == 1
+    )
 
     renamed = LCSObject(1, [literal("A"), variable("second", regex=True), literal("B")])
     trie.build([renamed])
-    assert trie.match(
-        [input_token("A", regex=True), input_token("value"), input_token("B")],
-        {1: renamed},
-    ) == 1
+    assert (
+        trie.match(
+            [input_token("A", regex=True), input_token("value"), input_token("B")],
+            {1: renamed},
+        )
+        == 1
+    )
 
 
 def test_trie_candidate_tie_still_prefers_shorter_template() -> None:
@@ -90,7 +101,10 @@ def test_trie_candidate_tie_still_prefers_shorter_template() -> None:
     trie = PrefixTree()
     trie.build([longer, shorter])
 
-    assert trie.match(
-        [input_token("A", regex=True), input_token("B")],
-        {1: longer, 2: shorter},
-    ) == 2
+    assert (
+        trie.match(
+            [input_token("A", regex=True), input_token("B")],
+            {1: longer, 2: shorter},
+        )
+        == 2
+    )

@@ -224,6 +224,7 @@ class InputMode(str, Enum):
     SINGLE = "single"
     MULTILINE = "multiline"
 
+
 @dataclass(frozen=True)
 class InputConfig:
     mode: InputMode
@@ -277,8 +278,7 @@ input: InputConfig
 新增：
 
 ```python
-def is_header_line(self, line: str) -> bool:
-    ...
+def is_header_line(self, line: str) -> bool: ...
 ```
 
 要求：
@@ -320,19 +320,16 @@ class LogAssemblyError(ValueError):
 
 ```python
 class LogRecordAssembler:
-    def feed(self, raw_line: str, line_number: int) -> LogicalLog | None:
-        ...
+    def feed(self, raw_line: str, line_number: int) -> LogicalLog | None: ...
 
-    def flush(self) -> LogicalLog | None:
-        ...
+    def flush(self) -> LogicalLog | None: ...
 
     def assemble(
         self,
         lines: Iterable[str],
         *,
         start_line: int = 1,
-    ) -> Iterator[LogicalLog]:
-        ...
+    ) -> Iterator[LogicalLog]: ...
 ```
 
 组装器根据 `InputMode` 工作。
@@ -376,8 +373,7 @@ def process_log(
     line_id: int | None = None,
     end_line_id: int | None = None,
     update_model: bool = True,
-) -> ParsedRecord:
-    ...
+) -> ParsedRecord: ...
 ```
 
 规则：

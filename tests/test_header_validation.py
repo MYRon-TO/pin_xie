@@ -217,9 +217,7 @@ def test_parse_config_parses_and_validates_learning_settings() -> None:
     with pytest.raises(TypeError, match="learning.shuffle must be a bool"):
         PinXieEngine.parse_config_data({**base, "learning": {"shuffle": 1}})
     with pytest.raises(TypeError, match="learning.random_seed must be an int"):
-        PinXieEngine.parse_config_data(
-            {**base, "learning": {"random_seed": True}}
-        )
+        PinXieEngine.parse_config_data({**base, "learning": {"random_seed": True}})
 
 
 def test_multiline_config_constraints() -> None:

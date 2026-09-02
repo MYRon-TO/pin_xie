@@ -120,9 +120,16 @@ PYTHONPATH=src python -m pin_xie.demo /path/to/your.log --mode learn_parse --tem
 
 ```python
 from pin_xie import (
-    InputToken, LiteralTemplateToken, LogRecordAssembler, MaskPattern,
-    ParameterCapture, PinXieEngine, PlainTokenSource, RegexTokenSource,
-    RunMode, VariableTemplateToken,
+    InputToken,
+    LiteralTemplateToken,
+    LogRecordAssembler,
+    MaskPattern,
+    ParameterCapture,
+    PinXieEngine,
+    PlainTokenSource,
+    RegexTokenSource,
+    RunMode,
+    VariableTemplateToken,
 )
 
 engine = PinXieEngine.from_config_path("config/Config.dynamic_example.toml")

@@ -1,6 +1,5 @@
 # pyright: standard
 import pytest
-
 from pin_xie.cluster import LCSObject, create_cluster
 from pin_xie.models import (
     InputToken,

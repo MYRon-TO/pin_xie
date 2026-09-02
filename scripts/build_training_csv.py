@@ -27,6 +27,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -54,7 +55,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--time-col", default="_time", help="Time column name")
     parser.add_argument("--entity-col", default="user", help="Entity column name")
-    parser.add_argument("--content-col", default="content", help="Log content column name")
+    parser.add_argument(
+        "--content-col", default="content", help="Log content column name"
+    )
     parser.add_argument("--label-col", default="label", help="Input label column name")
     parser.add_argument(
         "--output-label-col",
@@ -98,7 +101,9 @@ def _require_columns(fieldnames: Sequence[str] | None, required: list[str]) -> N
         )
 
 
-def _compose_log(row: dict[str, str], *, time_col: str, entity_col: str, content_col: str) -> str:
+def _compose_log(
+    row: dict[str, str], *, time_col: str, entity_col: str, content_col: str
+) -> str:
     # Must match config/Config.dynamic_example.toml:
     # parse_structure = '<time>,<entity>,<context>'
     return f"{row[time_col]},{row[entity_col]},{row[content_col]}"
@@ -115,7 +120,12 @@ def build_training_csv(args: argparse.Namespace) -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     engine = PinXieEngine.from_config_path(args.config)
 
-    required_columns = [args.time_col, args.entity_col, args.content_col, args.label_col]
+    required_columns = [
+        args.time_col,
+        args.entity_col,
+        args.content_col,
+        args.label_col,
+    ]
     processed = 0
 
     with (
@@ -127,7 +137,11 @@ def build_training_csv(args: argparse.Namespace) -> int:
 
         writer = csv.DictWriter(
             output_fp,
-            fieldnames=[args.output_entity_col, args.output_event_col, args.output_label_col],
+            fieldnames=[
+                args.output_entity_col,
+                args.output_event_col,
+                args.output_label_col,
+            ],
         )
         writer.writeheader()
 

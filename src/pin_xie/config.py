@@ -29,6 +29,7 @@ class LearningConfig:
     shuffle: bool = False
     random_seed: int | None = None
 
+
 @dataclass
 class SpellConfig:
     tau_ratio: float = 0.5

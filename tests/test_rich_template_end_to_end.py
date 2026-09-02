@@ -42,28 +42,35 @@ def test_rich_template_cache_parse_and_outputs_end_to_end(tmp_path: Path) -> Non
     cache_dir = tmp_path / "cache"
     training = tmp_path / "training.log"
     training.write_text(
-        "connect 10.0.0.1 port 80 ok\n"
-        "connect client-a port service ok\n",
+        "connect 10.0.0.1 port 80 ok\nconnect client-a port service ok\n",
         encoding="utf-8",
     )
 
     learner = PinXieEngine(config)
     learner.run_file(training, mode=RunMode.LEARN, template_dir=cache_dir)
     cluster = learner.parser.all_clusters()[0]
-    learner.set_template_variable_names(cluster.cluster_id, {0: "client", 1: "service_port"})
+    learner.set_template_variable_names(
+        cluster.cluster_id, {0: "client", 1: "service_port"}
+    )
     learner.save_template_cache(cache_dir)
 
     variables = [
-        token for token in cluster.template_tokens if isinstance(token, VariableTemplateToken)
+        token
+        for token in cluster.template_tokens
+        if isinstance(token, VariableTemplateToken)
     ]
     assert [token.var_name for token in variables] == ["client", "service_port"]
     assert [source.kind for source in variables[0].sources] == ["plain", "regex"]
     assert [source.kind for source in variables[1].sources] == ["plain", "regex"]
     literals = [
-        token for token in cluster.template_tokens if isinstance(token, LiteralTemplateToken)
+        token
+        for token in cluster.template_tokens
+        if isinstance(token, LiteralTemplateToken)
     ]
     assert [token.text for token in literals] == ["connect", "port", "ok"]
-    assert all([source.kind for source in token.sources] == ["plain"] for token in literals)
+    assert all(
+        [source.kind for source in token.sources] == ["plain"] for token in literals
+    )
 
     new_log = "connect 10.0.0.9 port 8080 ok"
     before = learner.process_log(new_log, line_id=10, update_model=False)
@@ -96,7 +103,10 @@ def test_rich_template_cache_parse_and_outputs_end_to_end(tmp_path: Path) -> Non
         "service_port",
     ]
     assert [parameter.value for parameter in after.parameters] == ["10.0.0.9", "8080"]
-    assert [[source.mask_name for source in parameter.sources if source.kind == "regex"] for parameter in after.parameters] == [
+    assert [
+        [source.mask_name for source in parameter.sources if source.kind == "regex"]
+        for parameter in after.parameters
+    ] == [
         ["ipv4"],
         ["number"],
     ]

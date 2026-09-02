@@ -7,7 +7,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-
 from pin_xie import (
     DemoConfig,
     HeaderConfig,
@@ -51,7 +50,9 @@ def multiline_lines() -> list[str]:
     ]
 
 
-def test_process_log_parses_multiline_and_process_line_delegates(tmp_path: Path) -> None:
+def test_process_log_parses_multiline_and_process_line_delegates(
+    tmp_path: Path,
+) -> None:
     log = "2026-03-20 ERROR failed\n  detail"
     direct = PinXieEngine(build_config(tmp_path, InputMode.MULTILINE)).process_log(
         log, line_id=7, end_line_id=8
@@ -74,7 +75,9 @@ def test_process_log_validates_line_range(tmp_path: Path) -> None:
 
 def test_process_lines_uses_mode_specific_assembly(tmp_path: Path) -> None:
     single = PinXieEngine(build_config(tmp_path, InputMode.SINGLE))
-    single_records = list(single.process_lines([" first  \n", "\n", "last\n"], start_line_id=4))
+    single_records = list(
+        single.process_lines([" first  \n", "\n", "last\n"], start_line_id=4)
+    )
     assert [(r.log, r.line_id, r.end_line_id) for r in single_records] == [
         (" first  ", 4, 4),
         ("last", 6, 6),
@@ -90,9 +93,7 @@ def test_process_lines_uses_mode_specific_assembly(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("mode", [RunMode.LEARN, RunMode.LEARN_PARSE, RunMode.PARSE])
-def test_run_modes_share_boundaries_and_counts(
-    tmp_path: Path, mode: RunMode
-) -> None:
+def test_run_modes_share_boundaries_and_counts(tmp_path: Path, mode: RunMode) -> None:
     config = build_config(tmp_path, InputMode.MULTILINE)
     log_path = tmp_path / "input.log"
     log_path.write_text("".join(multiline_lines()), encoding="utf-8")
@@ -113,7 +114,9 @@ def test_run_modes_share_boundaries_and_counts(
         assert report.parsed_output_path is not None
         payloads = [
             json.loads(line)
-            for line in report.parsed_output_path.read_text(encoding="utf-8").splitlines()
+            for line in report.parsed_output_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
         ]
         assert len(payloads) == 2
         assert payloads[0]["log"].endswith("  File app.py\n")
@@ -151,9 +154,7 @@ def test_learning_modes_update_existing_template_cache(
     first_log.write_text("alpha\n", encoding="utf-8")
     second_log.write_text("beta gamma delta\n", encoding="utf-8")
 
-    PinXieEngine(config).run_file(
-        first_log, mode=RunMode.LEARN, template_dir=cache_dir
-    )
+    PinXieEngine(config).run_file(first_log, mode=RunMode.LEARN, template_dir=cache_dir)
     updated = PinXieEngine(config)
     updated.run_file(second_log, mode=mode, template_dir=cache_dir)
 
@@ -183,7 +184,11 @@ def test_learn_shuffle_is_seeded_and_uses_logical_records(tmp_path: Path) -> Non
 
     assert report.processed_records == 3
     assert report.processed_physical_lines == 5
-    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [3, 5, 1]
+    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [
+        3,
+        5,
+        1,
+    ]
 
 
 def test_learn_parse_shuffles_learning_but_parses_in_original_order(
@@ -200,7 +205,11 @@ def test_learn_parse_shuffles_learning_but_parses_in_original_order(
     )
 
     assert report.processed_records == 3
-    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [2, 3, 1]
+    assert [cluster.line_ids[0] for cluster in engine.parser.all_clusters()] == [
+        2,
+        3,
+        1,
+    ]
     assert report.parsed_output_path is not None
     payloads = [
         json.loads(line)
@@ -285,7 +294,10 @@ def test_template_cache_v4_saves_and_loads_complete_config(tmp_path: Path) -> No
             lambda state: state["header"].update(field_patterns={"level": "INFO"}),
             "header.field_patterns",
         ),
-        (lambda state: state["tokenizer"].update(delimiters=r"\\s+"), "tokenizer.delimiters"),
+        (
+            lambda state: state["tokenizer"].update(delimiters=r"\\s+"),
+            "tokenizer.delimiters",
+        ),
         (
             lambda state: state["tokenizer"].update(extra_delimiters=[r"-+"]),
             "tokenizer.extra_delimiters",
@@ -296,7 +308,10 @@ def test_template_cache_v4_saves_and_loads_complete_config(tmp_path: Path) -> No
             ),
             "tokenizer.mask_patterns",
         ),
-        (lambda state: state["tokenizer"].update(use_jieba=True), "tokenizer.use_jieba"),
+        (
+            lambda state: state["tokenizer"].update(use_jieba=True),
+            "tokenizer.use_jieba",
+        ),
     ],
 )
 def test_template_cache_rejects_each_config_difference(
@@ -330,7 +345,9 @@ def test_template_cache_rejects_old_version_without_partial_load(
 
     with pytest.raises(ValueError, match=rf"version {version}.*learn again"):
         engine.load_template_cache(cache_dir)
-    assert [cluster.cluster_id for cluster in engine.parser.all_clusters()] == [original]
+    assert [cluster.cluster_id for cluster in engine.parser.all_clusters()] == [
+        original
+    ]
 
 
 @pytest.mark.parametrize(

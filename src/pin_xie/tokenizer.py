@@ -13,8 +13,6 @@ DEFAULT_DELIMITERS = r"[ =,:()\[\]\t\n\r]+"
 
 
 @final
-
-
 class LogTokenizer:
     def __init__(
         self,

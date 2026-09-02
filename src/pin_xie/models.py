@@ -72,9 +72,9 @@ def normalize_sources(sources: Iterable[TokenSource]) -> tuple[TokenSource, ...]
     return tuple(
         sorted(
             set(sources),
-            key=lambda source: (0, "")
-            if source.kind == "plain"
-            else (1, source.mask_name),
+            key=lambda source: (
+                (0, "") if source.kind == "plain" else (1, source.mask_name)
+            ),
         )
     )
 
