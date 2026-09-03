@@ -109,6 +109,32 @@ def test_parameter_multi_token_and_repeated_fixed_boundary() -> None:
     assert capture.sources == (IP, PORT)
 
 
+def test_empty_middle_capture_is_skipped_without_shifting_later_index() -> None:
+    template = [
+        literal("a"),
+        variable("optional"),
+        literal("z"),
+        variable("tail"),
+    ]
+
+    captures = extract_parameters([inp("a"), inp("z"), inp("value", IP)], template)
+
+    assert len(captures) == 1
+    capture = captures[0]
+    assert (capture.template_token_index, capture.var_name, capture.value) == (
+        3,
+        "tail",
+        "value",
+    )
+    assert capture.sources == (IP,)
+
+
+def test_empty_trailing_capture_is_skipped() -> None:
+    template = [literal("a"), variable("optional")]
+
+    assert extract_parameters([inp("a")], template) == []
+
+
 def test_render_reads_object_variable_name() -> None:
     assert render_template_tokens([literal("a"), variable("client")]) == [
         "a",

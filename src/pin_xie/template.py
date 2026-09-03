@@ -156,6 +156,8 @@ def extract_parameters(
                 token_idx += 1
 
         captured = tokens[capture_start:token_idx]
+        if not captured:
+            continue
         parameters.append(
             ParameterCapture(
                 template_token_index=variable_tpl_index,
