@@ -82,10 +82,40 @@ def test_mask_config_must_be_an_array() -> None:
         parse_demo_config(_config({"name": "x", "pattern": "x"}))
 
 
-def test_plain_tokens_have_plain_source() -> None:
-    assert tokenize("hello world") == [
+def test_ascii_text_is_split_by_configured_delimiters() -> None:
+    assert tokenize("hello world != 42") == [
         InputToken("hello", PlainTokenSource()),
         InputToken("world", PlainTokenSource()),
+        InputToken("!", PlainTokenSource()),
+        InputToken("42", PlainTokenSource()),
+    ]
+
+
+def test_ascii_runs_in_mixed_text_are_not_split_by_jieba() -> None:
+    tokenizer = LogTokenizer(use_jieba=True)
+
+    assert tokenizer.tokenize("中文: hello, world!内容") == [
+        InputToken("中文", PlainTokenSource()),
+        InputToken("hello", PlainTokenSource()),
+        InputToken("world!", PlainTokenSource()),
+        InputToken("内容", PlainTokenSource()),
+    ]
+
+
+def test_custom_ascii_delimiters_take_priority_over_ascii_runs() -> None:
+    tokenizer = LogTokenizer(
+        delimiters=r"[ =,:()\[\]\t\n\r_]+", use_jieba=False
+    )
+
+    assert tokenizer.tokenize("云服务配置 secret_name=******") == [
+        InputToken("云", PlainTokenSource()),
+        InputToken("服", PlainTokenSource()),
+        InputToken("务", PlainTokenSource()),
+        InputToken("配", PlainTokenSource()),
+        InputToken("置", PlainTokenSource()),
+        InputToken("secret", PlainTokenSource()),
+        InputToken("name", PlainTokenSource()),
+        InputToken("******", PlainTokenSource()),
     ]
 
 

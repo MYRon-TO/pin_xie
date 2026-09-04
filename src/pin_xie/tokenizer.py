@@ -29,6 +29,7 @@ class LogTokenizer:
             f"(?:{pattern})" for pattern in delimiter_patterns
         )
         self.delimiter_re = regex.compile(self.delimiter_pattern)
+        self.ascii_run_re = regex.compile(r"[\x00-\x7f]+|[^\x00-\x7f]+")
         self.mixed_chunk_re = regex.compile(
             r"\p{Han}+|[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*|[^\s]"
         )
@@ -116,21 +117,26 @@ class LogTokenizer:
             return [chunk]
 
         segmented: list[str] = []
-        for part in self.mixed_chunk_re.findall(chunk):
-            if not part or part.isspace():
+        for run in self.ascii_run_re.findall(chunk):
+            if run.isascii():
+                segmented.append(run)
                 continue
 
-            if self.contains_han_re.search(part):
-                if self.use_jieba:
-                    segmented.extend(
-                        token.strip()
-                        for token in jieba.cut(part, HMM=True)
-                        if token.strip()
-                    )
+            for part in self.mixed_chunk_re.findall(run):
+                if not part or part.isspace():
+                    continue
+
+                if self.contains_han_re.search(part):
+                    if self.use_jieba:
+                        segmented.extend(
+                            token.strip()
+                            for token in jieba.cut(part, HMM=True)
+                            if token.strip()
+                        )
+                    else:
+                        segmented.extend(ch for ch in part if not ch.isspace())
                 else:
-                    segmented.extend(ch for ch in part if not ch.isspace())
-            else:
-                segmented.append(part)
+                    segmented.append(part)
 
         return segmented
 

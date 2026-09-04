@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 from pin_xie.api import PinXieEngine
-from pin_xie.models import InputToken, ParameterCapture
+from pin_xie.models import InputToken, MaskPattern, ParameterCapture
 from pin_xie.parser import SpellParser
 from pin_xie.tokenizer import LogTokenizer
 
@@ -31,16 +31,17 @@ TOKENIZER: dict[str, Any] = {
 }
 
 
-def make_parser() -> SpellParser:
-    from pin_xie.models import MaskPattern
-
-    tokenizer = LogTokenizer(
+def make_tokenizer() -> LogTokenizer:
+    return LogTokenizer(
         delimiters=" ",
         extra_delimiters=(":",),
         use_jieba=False,
         mask_patterns=(MaskPattern("number", r"\d+"), MaskPattern("word", r"[a-z]+")),
     )
-    parser = SpellParser(tokenizer=tokenizer)
+
+
+def make_parser() -> SpellParser:
+    parser = SpellParser(tokenizer=make_tokenizer())
     parser.process("job 12 ok", line_id=1)
     parser.process("job abc ok", line_id=2)
     return parser
@@ -61,6 +62,7 @@ def load(raw: dict[str, Any]) -> SpellParser:
         input_config=INPUT,
         header_config=HEADER,
         tokenizer_config=TOKENIZER,
+        tokenizer=make_tokenizer(),
     )
 
 

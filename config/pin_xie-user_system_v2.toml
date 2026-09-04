@@ -1,0 +1,44 @@
+[input]
+mode = 'single'
+
+[learning]
+shuffle = true
+random_seed = 42
+
+[spell]
+tau_ratio = 0.75
+
+[tokenizer]
+delimiters = '[ =,:()\[\]\t\n\r"{}]+'
+extra_delimiters = []
+use_jieba = true
+
+[[tokenizer.mask_patterns]]
+name = 'datetime'
+pattern = '\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{1,9}Z\b'
+
+[[tokenizer.mask_patterns]]
+name = 'ipv4'
+pattern = '\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b'
+
+[[tokenizer.mask_patterns]]
+name = 'sim_sk'
+pattern = '\bsim_sk_[A-Za-z0-9_-]{32,64}\b'
+
+[header]
+parse_structure = '<time>, <entity>, <context>'
+strict_mode = false
+
+[header.field_patterns]
+time = '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z'
+entity = '[\p{L}\p{N}_.@-]+'
+
+[timestamp]
+field = 'time'
+# format = '%Y-%m-%dT%H:%M:%S.%fZ'
+
+[output]
+dir = 'output'
+parsed_file = 'parsed_results.jsonl'
+template_file = 'templates.txt'
+show_tokens = false
